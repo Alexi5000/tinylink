@@ -24,7 +24,7 @@ export async function redirectLink(
   }
   if (request.method === "GET") {
     try {
-      await recordClick(db, code);
+      await recordClick(db, code, link.generation);
     } catch {
       console.error(
         JSON.stringify({ event: "analytics_write_failed", requestId }),

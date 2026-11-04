@@ -68,8 +68,15 @@ export function setup(testContext) {
   const seedLink = (code, owner = "alice") =>
     sqlite
       .prepare(
-        "INSERT INTO links (code,owner,url,title,created_at) VALUES (?,?,?,?,?)",
+        "INSERT INTO links (code,owner,url,title,created_at,generation) VALUES (?,?,?,?,?,?)",
       )
-      .run(code, owner, "https://example.com/", code, Date.now());
+      .run(
+        code,
+        owner,
+        "https://example.com/",
+        code,
+        Date.now(),
+        crypto.randomUUID(),
+      );
   return { db, req, sqlite, seedLink };
 }

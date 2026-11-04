@@ -17,13 +17,17 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { shortPath, type LinkRecord } from "../model";
-import { isActive as isLinkActive, exportLinksCsv } from "../presentation";
+import {
+  isActive as isLinkActive,
+  isExpired,
+  exportLinksCsv,
+} from "../presentation";
 type Props = {
   now: number;
   rows: LinkRecord[];
   demo: boolean;
   loading: boolean;
-  busy: string;
+  busy: boolean;
   copied: string;
   refresh: () => Promise<void>;
   copy: (link: LinkRecord) => Promise<void>;
@@ -89,6 +93,7 @@ export function LinkList({
             <button
               key={t}
               className={filter === t ? "selected" : ""}
+              aria-pressed={filter === t}
               onClick={() => setFilter(t)}
             >
               {t}
@@ -129,11 +134,15 @@ export function LinkList({
                   }
                   title={isActive(l) ? "Active" : "Inactive"}
                 />
-                {!isActive(l) && (
-                  <span className="mobile-status">
-                    {l.expires_at && l.expires_at <= now ? "Expired" : "Paused"}
-                  </span>
-                )}
+                <span
+                  className={"mobile-status " + (isActive(l) ? "active" : "")}
+                >
+                  {isActive(l)
+                    ? "Active"
+                    : isExpired(l, now)
+                      ? "Expired"
+                      : "Paused"}
+                </span>
               </div>
               <p className="link-destination" title={l.url}>
                 {l.url.replace(/^https?:\/\//, "")}
@@ -191,12 +200,25 @@ export function LinkList({
                     <ArrowUpRight size={15} />
                     Open link
                   </button>
-                  <button disabled={busy === l.code} onClick={() => change(l)}>
+                  <button
+                    disabled={busy || isExpired(l, now)}
+                    onClick={() => change(l)}
+                    title={
+                      isExpired(l, now)
+                        ? "Expired links cannot resume. Create a new link."
+                        : undefined
+                    }
+                  >
                     {l.active ? <Pause size={14} /> : <Play size={14} />}{" "}
-                    {l.active ? "Pause link" : "Resume link"}
+                    {isExpired(l, now)
+                      ? "Expired · create a new link"
+                      : l.active
+                        ? "Pause link"
+                        : "Resume link"}
                   </button>
                   <button
                     className="delete-action"
+                    disabled={busy}
                     onClick={() =>
                       demo ? notify("Sample links are read-only.") : onDelete(l)
                     }

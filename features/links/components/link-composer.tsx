@@ -13,12 +13,26 @@ type Props = {
     onSuccess: () => void,
   ) => Promise<void>;
   saving: boolean;
+  mutationBusy: boolean;
   urlInput: RefObject<HTMLInputElement | null>;
 };
-export function LinkComposer({ onCreate, saving, urlInput }: Props) {
+export function LinkComposer({
+  onCreate,
+  saving,
+  mutationBusy,
+  urlInput,
+}: Props) {
   const [advanced, setAdvanced] = useState(false);
-  const create = (event: FormEvent<HTMLFormElement>) =>
-    onCreate(event, () => setAdvanced(false));
+  const create = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.checkValidity()) {
+      setAdvanced(true);
+      requestAnimationFrame(() => form.reportValidity());
+      return;
+    }
+    return onCreate(event, () => setAdvanced(false));
+  };
   return (
     <section className="composer enter" aria-label="Create a short link">
       <div className="composer-top">
@@ -30,7 +44,7 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
           <ShieldCheck size={13} /> Your workspace
         </span>
       </div>
-      <form onSubmit={create}>
+      <form onSubmit={create} noValidate>
         <div className="input-row">
           <label className="destination">
             <Link2 size={19} />
@@ -38,6 +52,7 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
               ref={urlInput}
               name="url"
               type="url"
+              disabled={saving}
               required
               maxLength={4096}
               placeholder="Paste a long URL…"
@@ -45,7 +60,7 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
               autoComplete="url"
             />
           </label>
-          <button className="primary" disabled={saving}>
+          <button className="primary" disabled={saving || mutationBusy}>
             {saving ? <LoaderCircle size={17} className="spin" /> : null}
             {saving ? "Creating" : "Create link"}
             {!saving && <ArrowUpRight size={18} />}
@@ -55,6 +70,7 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
           <span>Good links take you places.</span>
           <button
             type="button"
+            disabled={saving}
             onClick={() => setAdvanced(!advanced)}
             aria-expanded={advanced}
           >
@@ -62,7 +78,10 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
             {advanced ? "Fewer options" : "Link options"}
           </button>
         </div>
-        <div className={"options-wrap " + (advanced ? "expanded" : "")}>
+        <div
+          className={"options-wrap " + (advanced ? "expanded" : "")}
+          inert={!advanced}
+        >
           <div className="options-inner">
             <label>
               Title
@@ -70,7 +89,7 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
                 name="title"
                 placeholder="e.g. Spring campaign"
                 maxLength={100}
-                disabled={!advanced}
+                disabled={saving}
               />
             </label>
             <label>
@@ -79,16 +98,12 @@ export function LinkComposer({ onCreate, saving, urlInput }: Props) {
                 name="alias"
                 placeholder="spring-campaign"
                 pattern="[a-zA-Z0-9_-]{3,40}"
-                disabled={!advanced}
+                disabled={saving}
               />
             </label>
             <label>
               Expires
-              <input
-                name="expiresAt"
-                type="datetime-local"
-                disabled={!advanced}
-              />
+              <input name="expiresAt" type="datetime-local" disabled={saving} />
             </label>
           </div>
         </div>

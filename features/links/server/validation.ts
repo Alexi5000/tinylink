@@ -63,6 +63,30 @@ export function validateLink(value: unknown, origin: string): NewLink {
   if (title.length > 100)
     throw new ApiError(400, "Title must not exceed 100 characters.");
   const expiration = optionalString(data, "expiresAt");
+  const match = expiration.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/,
+  );
+  if (expiration) {
+    if (!match)
+      throw new ApiError(400, "Use an ISO timestamp with a timezone.");
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText] =
+      match;
+    const year = Number(yearText),
+      month = Number(monthText),
+      day = Number(dayText);
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > days[month - 1] ||
+      Number(hourText) > 23 ||
+      Number(minuteText) > 59 ||
+      Number(secondText || 0) > 59
+    )
+      throw new ApiError(400, "Choose a valid calendar timestamp.");
+  }
   const expires = expiration ? Date.parse(expiration) : null;
   if (
     expires !== null &&
@@ -70,7 +94,12 @@ export function validateLink(value: unknown, origin: string): NewLink {
   ) {
     throw new ApiError(400, "Choose an expiration in the future.");
   }
-  return { url: url.href, code, title: title || url.hostname, expires };
+  return {
+    url: url.href,
+    code,
+    title: title || url.hostname.slice(0, 100),
+    expires,
+  };
 }
 
 export function randomCode(): string {

@@ -117,6 +117,7 @@ export function WorkspaceDialogs({
             {["Quick start", "API docs"].map((t) => (
               <button
                 className={help === t ? "selected" : ""}
+                aria-pressed={help === t}
                 key={t}
                 onClick={() => setHelp(t)}
               >

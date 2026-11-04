@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+import { registerHooks } from "node:module";
 import { service, validateLink, ApiError } from "../lib/service.ts";
 import { shortPath } from "../features/links/model.ts";
-import { MAX_JSON_BYTES } from "../shared/server/http.ts";
 import { setup } from "./helpers/database.mjs";
 
 test("generated code collisions retry without overwriting the existing link", async (t) => {
@@ -57,6 +59,7 @@ test("create and list expose the public link record and canonical short URL", as
   assert.equal(created.shortUrl, "https://tiny.test/hello");
   assert.equal(created.link.url, "https://example.com/a");
   assert.equal(created.link.owner, undefined);
+  assert.equal(created.link.generation, undefined);
   const list = await (await req("/api/links")).json();
   assert.deepEqual(list.links, [created.link]);
 });
@@ -79,6 +82,85 @@ test("clean and legacy redirects are public; only GET increments both counters",
   }
   assert.equal((await (await req("/api/links")).json()).links[0].clicks, 2);
   assert.equal((await (await req("/api/analytics")).json()).days[0].clicks, 2);
+});
+
+test("route adapters forward exported handlers to the service with the bound database", async (t) => {
+  const { db, seedLink, sqlite } = setup(t);
+  seedLink("adapter");
+  // Replace only the unavailable runtime binding. The real route modules and
+  // service execute; framework route discovery and hosted auth remain separate.
+  const bindingUrl = "data:text/javascript,export const env = {}";
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === "cloudflare:workers") {
+        return { url: bindingUrl, shortCircuit: true };
+      }
+      if (specifier.endsWith("/lib/service")) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  t.after(() => hooks.deregister());
+  const { env } = await import("cloudflare:workers");
+  env.DB = db;
+  t.after(() => delete env.DB);
+
+  for (const [modulePath, path] of [
+    ["../app/[code]/route.ts", "/adapter"],
+    ["../app/r/[code]/route.ts", "/r/adapter"],
+  ]) {
+    const adapter = await import(modulePath);
+    for (const method of ["GET", "HEAD"]) {
+      const response = await adapter[method](
+        new Request(`https://tiny.test${path}`, { method }),
+      );
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get("location"), "https://example.com/");
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(await response.text(), "");
+    }
+  }
+  assert.equal(
+    sqlite.prepare("SELECT clicks FROM links WHERE code='adapter'").get()
+      .clicks,
+    2,
+  );
+  const api = await import("../app/api/[...path]/route.ts");
+  const request = (path, method, body) =>
+    new Request(`https://tiny.test${path}`, {
+      method,
+      headers: { "oai-authenticated-user-id": "alice" },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  const created = await api.POST(
+    request("/api/links", "POST", {
+      url: "https://created.example/",
+      alias: "adapter-created",
+    }),
+  );
+  assert.equal(created.status, 201);
+  const listed = await api.GET(request("/api/links", "GET"));
+  assert.equal((await listed.json()).links.length, 2);
+  assert.equal(
+    (
+      await api.PATCH(
+        request("/api/links/adapter-created", "PATCH", { active: false }),
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    sqlite
+      .prepare("SELECT active FROM links WHERE code='adapter-created'")
+      .get().active,
+    0,
+  );
+  assert.equal(
+    (await api.DELETE(request("/api/links/adapter-created", "DELETE"))).status,
+    200,
+  );
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM links").get().n, 1);
 });
 
 test("duplicate aliases return 409 and generated codes differ", async (t) => {
@@ -274,23 +356,20 @@ test("POST and PATCH enforce a 16 KiB byte limit even with a false Content-Lengt
     const oversized = JSON.stringify({
       url: "https://example.com",
       active: true,
-      padding: "é".repeat(MAX_JSON_BYTES / 2),
+      padding: "é".repeat(8192),
     });
     const response = await req(path, method, oversized, "alice", {
       "Content-Length": "1",
     });
     assert.equal(response.status, 413);
     assert.equal(response.headers.get("cache-control"), "no-store");
+    const body = JSON.stringify({ url: "https://example.com", active: true });
+    assert.equal(
+      (await req(path, method, body.padEnd(16384))).status,
+      method === "POST" ? 201 : 200,
+    );
+    assert.equal((await req(path, method, body.padEnd(16385))).status, 413);
   }
-  const body = JSON.stringify({ url: "https://example.com" });
-  assert.equal(
-    (await req("/api/links", "POST", body.padEnd(MAX_JSON_BYTES))).status,
-    201,
-  );
-  assert.equal(
-    (await req("/api/links", "POST", body.padEnd(MAX_JSON_BYTES + 1))).status,
-    413,
-  );
 });
 
 test("oversized streaming JSON is cancelled before the remainder is consumed", async (t) => {
@@ -359,6 +438,8 @@ test("concurrent creates cannot exceed the per-account quota", async (t) => {
 });
 
 test("rate limiting returns 429 with Retry-After and does not affect reads", async (t) => {
+  let now = Date.parse("2026-11-04T12:00:00Z");
+  t.mock.method(Date, "now", () => now);
   const { req } = setup(t);
   for (let i = 0; i < 30; i++) {
     assert.equal(
@@ -372,6 +453,11 @@ test("rate limiting returns 429 with Retry-After and does not affect reads", asy
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get("retry-after"), "60");
   assert.equal((await req("/api/links")).status, 200);
+  now += 60_000;
+  assert.equal(
+    (await req("/api/links", "POST", { url: "https://example.com" })).status,
+    201,
+  );
 });
 
 test("analytics batch failure rolls back lifetime counts and preserves redirects", async (t) => {
@@ -393,19 +479,25 @@ test("analytics batch failure rolls back lifetime counts and preserves redirects
 });
 
 test("analytics returns the most recent 30 UTC calendar days for the owner", async (t) => {
+  t.mock.method(Date, "now", () => Date.parse("2026-11-04T00:30:00Z"));
   const { req, seedLink, sqlite } = setup(t);
   seedLink("alice-link");
+  seedLink("alice-second");
   seedLink("bob-link", "bob");
-  const today = new Date().toISOString().slice(0, 10);
-  const old = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   const insert = sqlite.prepare(
     "INSERT INTO daily (code,day,clicks) VALUES (?,?,?)",
   );
-  insert.run("alice-link", today, 5);
-  insert.run("alice-link", old, 9);
-  insert.run("bob-link", today, 99);
+  insert.run("alice-link", "2026-11-04", 5);
+  insert.run("alice-second", "2026-11-04", 7);
+  insert.run("alice-link", "2026-11-03", 3);
+  insert.run("alice-link", "2026-10-06", 2);
+  insert.run("alice-link", "2026-10-05", 9);
+  insert.run("bob-link", "2026-11-04", 99);
+  insert.run("bob-link", "2026-10-06", 99);
   assert.deepEqual((await (await req("/api/analytics")).json()).days, [
-    { day: today, clicks: 5 },
+    { day: "2026-10-06", clicks: 2 },
+    { day: "2026-11-03", clicks: 3 },
+    { day: "2026-11-04", clicks: 12 },
   ]);
 });
 
@@ -462,4 +554,110 @@ test("reserved aliases cannot shadow routes and legacy reserved links remain res
   assert.equal(shortPath("api"), "/r/api");
   assert.equal(shortPath("hello"), "/hello");
   assert.equal((await req("/r/api", "GET", undefined, null)).status, 302);
+});
+
+test("a deleted and reused alias does not transfer an in-flight click", async (t) => {
+  const { req, db, sqlite, seedLink } = setup(t);
+  seedLink("reused", "alice");
+  const batch = db.batch;
+  db.batch = async (statements) => {
+    sqlite.prepare("DELETE FROM links WHERE code=?").run("reused");
+    seedLink("reused", "bob");
+    sqlite
+      .prepare("UPDATE links SET url=? WHERE code=?")
+      .run("https://new.example/", "reused");
+    return batch(statements);
+  };
+  const response = await req("/reused");
+  assert.equal(response.headers.get("location"), "https://example.com/");
+  assert.equal(
+    sqlite.prepare("SELECT clicks FROM links WHERE code=?").get("reused")
+      .clicks,
+    0,
+  );
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM daily").get().n, 0);
+  db.batch = batch;
+  assert.equal(
+    (await req("/reused")).headers.get("location"),
+    "https://new.example/",
+  );
+  assert.equal(
+    sqlite.prepare("SELECT clicks FROM links WHERE code=?").get("reused")
+      .clicks,
+    1,
+  );
+});
+
+test("expiration requires a real calendar date and explicit timezone", async (t) => {
+  const { req } = setup(t);
+  for (const expiresAt of [
+    "2099-02-31T12:00:00Z",
+    "2099-04-31T12:00:00Z",
+    "2099-01-01T12:00:00",
+    "2100-02-29T12:00:00Z",
+    "2099-01-01T24:00:00Z",
+  ]) {
+    assert.equal(
+      (
+        await req("/api/links", "POST", {
+          url: "https://example.com",
+          expiresAt,
+        })
+      ).status,
+      400,
+      expiresAt,
+    );
+  }
+  for (const expiresAt of [
+    "2096-02-29T12:00:00Z",
+    "2099-01-01T12:00:00+05:30",
+  ]) {
+    assert.equal(
+      (
+        await req("/api/links", "POST", {
+          url: "https://example.com",
+          expiresAt,
+        })
+      ).status,
+      201,
+      expiresAt,
+    );
+  }
+});
+
+test("hostname-derived titles obey the 100 character limit", async (t) => {
+  const { req } = setup(t);
+  const hostname = Array(5).fill("a".repeat(30)).join(".") + ".com";
+  const response = await req("/api/links", "POST", {
+    url: `https://${hostname}`,
+  });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).link.title, hostname.slice(0, 100));
+});
+
+test("generation migration backfills existing links while preserving analytics", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec("PRAGMA foreign_keys=ON");
+    db.exec(readFileSync("drizzle/0000_pink_havok.sql", "utf8"));
+    db.exec(`INSERT INTO links (code, owner, url, title, created_at) VALUES
+      ('old1', 'alice', 'https://one.example/', 'one', 1),
+      ('old2', 'alice', 'https://two.example/', 'two', 2);
+      INSERT INTO daily (code, day, clicks) VALUES ('old1', '2099-01-01', 3);`);
+    db.exec(readFileSync("drizzle/0001_outgoing_lizard.sql", "utf8"));
+    const rows = db
+      .prepare("SELECT code, generation FROM links ORDER BY code")
+      .all();
+    assert.equal(rows.length, 2);
+    assert.match(rows[0].generation, /^[0-9a-f-]{36}$/);
+    assert.notEqual(rows[0].generation, rows[1].generation);
+    assert.equal(
+      db.prepare("SELECT clicks FROM daily WHERE code='old1'").get().clicks,
+      3,
+    );
+    db.prepare("DELETE FROM links WHERE code='old1'").run();
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM daily").get().n, 0);
+  } finally {
+    db.close();
+  }
 });

@@ -1,0 +1,921 @@
+{
+  "review": "second-pass",
+  "baselineHostingRevision": "8dff010a0b3d10c4f2b8dd7fe9c5e1de96764afb",
+  "baselineGitHubRevision": "bcaecf7fb807fdbed261d16b602e8fd7b49c9c02",
+  "distinctReviewers": 20,
+  "models": {
+    "gpt-6.1-sol": 7,
+    "gpt-6.1-terra": 7,
+    "gpt-6-astra": 6
+  },
+  "method": "Bounded independent reviews, coordinator adjudication, scoped fixes, final reviews19/20 and persona-lens rechecks13/14/15. Reports retain original findings even after resolution; see swarm-review.md for disposition.",
+  "reviews": [
+    {
+      "reviewer": "01 HTTP/input contracts",
+      "model": "gpt-6.1-sol",
+      "scope": [
+        "shared/server/http.ts",
+        "lib/service.ts",
+        "features/links/server/validation.ts",
+        "features/links/server/redirect.ts",
+        "app route adapters",
+        "tests/service.test.mjs",
+        "docs/spec.md"
+      ],
+      "findings": [
+        {
+          "severity": "P2",
+          "file": "features/links/server/validation.ts",
+          "line": 66,
+          "issue": "Impossible calendar timestamps are silently normalized into different expiration dates.",
+          "evidence": "Against the in-memory SQLite service, POST {url:\"https://example.com\",expiresAt:\"2099-02-31T12:00:00Z\"} returns 201 and persists 2099-03-03T12:00:00.000Z. The analogous April 31 timestamp becomes May 1. Date.parse finiteness only verifies parseability, not the requested calendar date, so links can expire later than the timestamp the caller supplied. Existing tests cover unparseable text and past dates, not calendar overflow.",
+          "fix": "Validate an explicit ISO timestamp with timezone and verify calendar components before converting it; reject calendar overflow with 400. Add an impossible-day regression."
+        },
+        {
+          "severity": "P3",
+          "file": "features/links/server/validation.ts",
+          "line": 73,
+          "issue": "The default hostname title bypasses the documented 100-character title cap.",
+          "evidence": "validateLink({url:\"https://\" + Array(5).fill(\"a\".repeat(30)).join(\".\") + \".com\"}, \"https://tiny.test\") returns a 158-character title even though supplied titles above 100 are rejected. The default is applied after length validation.",
+          "fix": "Apply the title policy to the resolved default as well; define and consistently apply truncation for hostname-derived titles, while preserving the documented supplied-title rejection."
+        }
+      ],
+      "checks": [
+        "Node v24.22.1: node --test tests/service.test.mjs: 21/21 passed.",
+        "Ad hoc direct service/validation probes reproduced both findings without source edits.",
+        "Reviewed actual-byte streaming limit, exact 16 KiB boundary coverage, malformed UTF-8/JSON path, optional field type checks, decoded separator guards, method Allow handling, error cache headers, HEAD body stripping. No concrete blocker found in those paths."
+      ],
+      "limitations": [
+        "Read-only focused pass; no deployed browser or Cloudflare runtime exercised.",
+        "No P0/P1 blockers identified. Both findings are validation edge cases; date rollover affects API-supplied invalid dates."
+      ],
+      "reviewId": "01"
+    },
+    {
+      "reviewer": "02",
+      "model": "gpt-6.1-terra",
+      "scope": "Link storage, analytics, migrations, write rate limits, and SQLite concurrency assumptions",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "features/analytics/server/repository.ts",
+          "line": 5,
+          "issue": "A redirect can credit its click to a different link after its alias is deleted and reused.",
+          "evidence": "redirectLink reads a link before separately recording by code. A deterministic Node 24 reproduction using the actual SQLite adapter deleted Alice's shared link and recreated the same code for Bob immediately before batch execution. The response redirected to Alice's original https://example.com/ while Bob's replacement row and daily aggregate each gained one click. D1 batch atomicity does not protect the preceding read from alias reuse.",
+          "fix": "Give every link an immutable unique generation ID, retain it in the initial lookup, and condition both lifetime and daily writes on that ID, ideally keying daily records by the generation ID. Skip the count if the generation no longer exists. Add a deterministic delete-and-recreate interleaving regression test."
+        }
+      ],
+      "checks": [
+        "Read atomic conditional quota insert, owner-scoped updates and deletion, FK cascade migration, analytics batching and aggregation, and fixed-minute rate-limit SQL.",
+        "Ran a deterministic Node v24.22.1 test against actual node:sqlite and the project's redirect and D1 adapter: old destination was returned while newly recreated link was credited.",
+        "The test harness batch wraps both statements in a transaction and enables foreign keys; its synchronous single-connection adapter cannot itself establish real D1 concurrent behavior or deployment guarantees."
+      ],
+      "limitations": [
+        "No live D1 or deployed gateway access; D1 batch transaction and foreign key behavior were not independently verified.",
+        "The 21 existing tests were reported by the parent as passing; they were not rerun for this focused review."
+      ],
+      "reviewId": "02"
+    },
+    {
+      "reviewer": "03 security trust and ownership",
+      "model": "gpt-6-astra",
+      "scope": "Read-only bounded review of Sites identity-header trust boundary, management origin protection and ownership, destination validation, CSV export, logs and runtime configuration.",
+      "findings": [],
+      "checks": [
+        {
+          "check": "Owner isolation",
+          "result": "Management listing, analytics aggregation, update and deletion use bound owner predicates; PATCH checks ownership and repeats owner predicate in UPDATE. No IDOR or SQL interpolation defect identified."
+        },
+        {
+          "check": "Trusted gateway identity",
+          "result": "Service trusts oai-authenticated-user-id as documented. Loopback development plugin removes incoming trusted identity headers before emulating identity; managed preview disables emulation. Production gateway stripping and origin isolation are outside this repository and were not independently verified."
+        },
+        {
+          "check": "Cross-origin management mutations",
+          "result": "Origin values different from request URL origin are rejected, including literal null. GET routes do not mutate management data; PATCH/DELETE require methods unavailable to ordinary cross-origin forms. Missing Origin is allowed by documented contract; no browser CSRF exploit demonstrated."
+        },
+        {
+          "check": "Redirect validation",
+          "result": "Executed local pure validation probes: javascript and data schemes, embedded credentials and same-origin /r/ destination return 400. Encoded CRLF stays percent-encoded. Loopback HTTP is accepted by design; destinations are redirected to rather than fetched, so this is not server-side request forgery."
+        },
+        {
+          "check": "CSV and DOM rendering",
+          "result": "CSV cells are quoted with escaped quotes and an apostrophe for formula-leading characters; user titles are trimmed on input. React renders titles and destinations as text. Link windows request noopener,noreferrer. No concrete stored script or CSV formula exploit established."
+        },
+        {
+          "check": "Logs and runtime configuration",
+          "result": "Application failure logs contain event and generated requestId only. Hosting configuration contains binding names/project ID, not credentials. Connector capability is request-scoped via AsyncLocalStorage; dev fallback is gated by import.meta.env.DEV."
+        }
+      ],
+      "limitations": [
+        "No security release blocker identified within the scoped source review; this is not verification of the external Sites gateway.",
+        "Existing 21-test pass was supplied by coordinator; reviewed relevant ownership and origin tests but did not rerun full suite.",
+        "No external calls, live account mutation, browser spreadsheet execution, dependency vulnerability search, or infrastructure probing performed.",
+        "Unscanned destinations, bot/repeat click inflation, missing global abuse limits and gateway dependency are explicit prototype limits, not newly established defects."
+      ],
+      "reviewId": "03"
+    },
+    {
+      "reviewer": "04 frontend state and concurrency",
+      "model": "gpt-6.1-sol",
+      "scope": [
+        "app/page.tsx",
+        "features/links/use-link-actions.ts",
+        "features/links/components/link-composer.tsx",
+        "features/links/components/link-list.tsx",
+        "features/workspace/use-workspace.ts",
+        "features/workspace/components/workspace-dialogs.tsx",
+        "features/workspace/components/dialog.tsx",
+        "features/workspace/api.ts"
+      ],
+      "findings": [
+        {
+          "severity": "P2",
+          "file": "features/links/use-link-actions.ts",
+          "line": 77,
+          "issue": "A single busy code cannot track simultaneous mutations and re-enables pending rows.",
+          "evidence": "Pause A starts and sets busy=A. Pause B remains enabled because link-list.tsx disables only busy === l.code; starting it changes busy=B while A is still running. Either request finally sets busy=\"\", even if the other is pending. A can then be clicked repeatedly with its stale active value, causing duplicate PATCH writes, rate-limit consumption, and misleading completion messages. deleteLink shares the same scalar and can also clear a running change.",
+          "fix": "Track pending operations per code using a Set/ref plus state, reject repeated operations for a pending code synchronously, and remove only the completed code. Alternatively serialize all mutations and disable all mutation controls consistently."
+        },
+        {
+          "severity": "P2",
+          "file": "features/links/use-link-actions.ts",
+          "line": 108,
+          "issue": "A pending deletion writes into whatever confirmation dialog is currently open.",
+          "evidence": "closeDelete always sets remove=null (line 143); the dialog close button, Escape, backdrop, and Keep link remain usable during DELETE. If A is being deleted, dismissing it and opening Delete B changes remove to B. A success unconditionally calls setRemove(null), closing B; A failure sets deleteError on B. If no replacement dialog is open, failure is hidden entirely because app/page.tsx renders deleteError only inside actions.remove.",
+          "fix": "Associate each delete result with the submitted code and only clear/update the matching dialog; surface failures outside a dismissed dialog. A simpler option is to prevent dismissal/replacement while deletion is pending and clearly indicate its state."
+        },
+        {
+          "severity": "P2",
+          "file": "features/links/use-link-actions.ts",
+          "line": 58,
+          "issue": "Successful creation erases edits made while the request was pending.",
+          "evidence": "create snapshots FormData before the POST, then later calls form.reset() unconditionally. LinkComposer only disables the submit button while saving; destination and advanced inputs remain editable. Typing the next URL/title during a slow POST therefore loses those changes when the first request completes.",
+          "fix": "Disable the form inputs for the pending create, or preserve edits by resetting only when the current form still matches the submitted snapshot. Keep existing visual design."
+        }
+      ],
+      "checks": [
+        "Read-only source review; no source changes or browser interaction.",
+        "Traced create, pause/resume, delete, copy, live/sample transitions, refresh generation handling, and dialog dismissal.",
+        "Confirmed useWorkspace generation guards prevent older refresh responses overwriting newer refresh responses.",
+        "Existing backend tests and build were reported passing by coordinator; not rerun for this focused review."
+      ],
+      "limitations": [
+        "Source-based reproduction traces only; no browser or hook test harness run.",
+        "No P0/P1 frontend blocker found in assigned scope.",
+        "Report file is the only file created by this reviewer."
+      ],
+      "reviewId": "04"
+    },
+    {
+      "reviewer": "05 accessibility/mobile",
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only source review of page, link controls, dialogs, activity chart and responsive CSS; no browser launch or source edits.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "app/globals.css",
+          "line": 529,
+          "issue": "The search field has no visible keyboard focus indicator.",
+          "evidence": ".search input sets outline: none after the equally specific input:focus rule, and no .search:focus-within styling exists.",
+          "fix": "Restore a visible input focus outline or add a sufficiently contrasting focus-within indicator on the search container."
+        },
+        {
+          "severity": "medium",
+          "file": "features/links/components/link-list.tsx",
+          "line": 89,
+          "issue": "Selected filter, data source, navigation view, and guide tab states are conveyed only by CSS classes.",
+          "evidence": "Filter buttons use className selected without aria-pressed or a radio/tab pattern; app/page.tsx lines 65-70, 127-135, 240-250 and workspace-dialogs.tsx lines 116-121 use the same pattern. Screen readers cannot programmatically determine the current selection.",
+          "fix": "Expose the chosen state using an appropriate semantic pattern, such as aria-pressed on toggle buttons or accessible tabs/radios with their corresponding keyboard interaction."
+        },
+        {
+          "severity": "medium",
+          "file": "features/analytics/activity-panel.tsx",
+          "line": 69,
+          "issue": "The click activity graph does not provide its daily values to nonvisual users.",
+          "evidence": "The SVG accessible name gives only the total and range, while per-day values exist solely in the plotted polyline. Axis text also omits most dates and all corresponding click values.",
+          "fix": "Provide an accessible daily data table or equivalent text alternative that updates with the selected date range."
+        },
+        {
+          "severity": "medium",
+          "file": "features/links/components/link-list.tsx",
+          "line": 126,
+          "issue": "On narrow screens an active link is distinguished only by a colored dot.",
+          "evidence": "The text status badge is display:none by default (app/globals.css:655), while mobile-status text is rendered only for inactive links. The dot's title is not visible by default on touch devices.",
+          "fix": "Show a textual Active label on mobile alongside the existing Paused and Expired labels."
+        },
+        {
+          "severity": "low",
+          "file": "app/globals.css",
+          "line": 540,
+          "issue": "The search clear control has a very small touch target.",
+          "evidence": ".search button has zero padding and contains a 14px icon with no minimum size, making its target smaller than 24 by 24 CSS pixels.",
+          "fix": "Give the clear button a minimum 24 by 24 CSS pixel target, preferably larger, while preserving its accessible label."
+        },
+        {
+          "severity": "low",
+          "file": "features/workspace/components/dialog.tsx",
+          "line": 28,
+          "issue": "Opening a dialog moves focus to the dialog container without a visible focus indicator.",
+          "evidence": "node.focus() targets the container, but .dialog sets outline: none at app/globals.css:1159; users see no focused element until they press Tab.",
+          "fix": "Initially focus the close button or another appropriate visible control, or add a visible focus indicator for the dialog container."
+        }
+      ],
+      "checks": [
+        "Reviewed keyboard focus CSS and dialog focus handling",
+        "Reviewed mobile navigation, link actions, form labels and touch targets",
+        "Confirmed collapsed advanced fields are disabled and hidden",
+        "Confirmed prefers-reduced-motion disables CSS animations and transitions",
+        "Reviewed mobile status and graph text alternatives",
+        "Reviewed responsive CSS and code block overflow handling"
+      ],
+      "limitations": [
+        "Static source inspection only; no browser, assistive technology, or computed contrast testing performed.",
+        "Existing 390px overflow and guide focus trap checks reported by parent were not repeated."
+      ],
+      "reviewId": "05"
+    },
+    {
+      "reviewer": "06 \u2014 Requirements and SDLC evidence",
+      "model": "gpt-6-astra",
+      "scope": "Bounded read-only audit of README, product specification, architecture, delivery evidence, verifier, CI configuration, service implementation and backend test traceability.",
+      "findings": [
+        {
+          "severity": "low",
+          "file": "docs/delivery.md",
+          "line": 34,
+          "issue": "The claimed resolution of a missing direct clean-URL adapter regression is broader than the checked-in test coverage.",
+          "evidence": "The maintainer finding names the clean URL adapter and lists clean-route coverage as its implemented resolution. tests/service.test.mjs:64 exercises /hello and /r/hello through setup().req; tests/helpers/database.mjs invokes lib/service.ts directly. Neither app/[code]/route.ts nor app/r/[code]/route.ts is imported or exercised by the automated suite. Deployed manual compatibility checks are documented separately and do provide runtime evidence, but the adapter regression itself is not automated.",
+          "fix": "Describe the resolution precisely as service-level clean/legacy routing regression plus manual deployed adapter verification, or add a small framework/adapter smoke check that would fail when a GET/HEAD export or DB wiring is removed."
+        },
+        {
+          "severity": "low",
+          "file": "docs/delivery.md",
+          "line": 10,
+          "issue": "The decomposition and controlled-autonomy evidence is mostly narrative; the advertised feature-task artifact is not present.",
+          "evidence": "The Plan row promises Feature tasks, while the repository supplies feature-to-requirement mapping and architecture decisions but no task IDs, assigned scopes/file ownership, completion criteria, or links from review findings to implementing revisions. Lines 20\u201322 assert bounded ownership and a release gate without an inspectable task/handoff record. This does not undermine the working product or executable verifier, but weakens the specific goal of demonstrating repeatable multi-step agent execution.",
+          "fix": "Add a short checked-in task/evidence table containing task scope, acceptance IDs, allowed edits, verification and source revision/result. Link existing review findings to those tasks. Keep it as documentation; no agent platform is needed."
+        },
+        {
+          "severity": "low",
+          "file": "README.md",
+          "line": 35,
+          "issue": "The copy-paste migration loop hides a failed migration and proceeds to start the app.",
+          "evidence": "The shell example uses wrangler ... || break, followed by npm run dev. break normally succeeds, so a failed first or later migration exits the loop successfully and the documented next command starts the server against an incomplete schema.",
+          "fix": "Make migration failure stop the setup sequence with a nonzero exit, or explicitly tell the user to stop and resolve any migration error before running npm run dev."
+        }
+      ],
+      "checks": [
+        {
+          "check": "Acceptance traceability",
+          "result": "Specification gives stable acceptance IDs, implementation mapping, explicit ambiguity decisions and separates planned checks from completed evidence."
+        },
+        {
+          "check": "Backend contract inspection",
+          "result": "Inspected validation, routing, ownership, atomic quota insert, collision bound, rate limits, no-store redirects and analytics aggregation; documentation broadly matches implementation."
+        },
+        {
+          "check": "Verification and CI inspection",
+          "result": "scripts/verify.mjs runs format/test/typecheck/build sequentially, fails fast, records timestamps/revision/dirty flag/results, and CI uses it with artifact upload. Existing 21-test/CI success was supplied in the task; no duplicate full run performed."
+        },
+        {
+          "check": "Truthful product boundaries",
+          "result": "Docs explicitly disclose prototype status, awaited analytics, undercounting, gateway trust dependency, inactive integrations, separate hosting and GitHub surfaces, and unverified live headers."
+        },
+        {
+          "check": "Persona framing",
+          "result": "Delivery record explicitly states the named people did not review or approve the project; no real endorsement claim found."
+        },
+        {
+          "check": "Release-source provenance",
+          "result": "Delivery record provides deployment/source identifiers and candidly distinguishes dirty local verification, later tests/docs and separate CI evidence; current remote artifacts not independently fetched."
+        }
+      ],
+      "limitations": [
+        "Read-only source audit; only this requested report was written.",
+        "No browser, hosted-session, deployment, remote CI or provider calls were made.",
+        "No source edits or new test runs were performed; backend test coverage was inspected directly.",
+        "Findings are documentation/evidence improvements, not claims of a blocking runtime defect."
+      ],
+      "reviewId": "06"
+    },
+    {
+      "reviewer": "07",
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only review of clean and legacy redirects, aliases, reserved codes, encoding, trailing slashes, nested destinations, random collisions, and method and cache handling.",
+      "findings": [],
+      "checks": [
+        "Inspected route adapters, service dispatch, validation, repository insertion and collision handling, redirect response, model, HTTP helpers, documentation and tests.",
+        "Ran Node v24.22.1 node --test tests/service.test.mjs: 21 passed, 0 failed. Coverage includes clean and legacy GET/HEAD, cache headers, reserved aliases, malformed encodings, generated collisions and exhaustion, and unsupported service methods.",
+        "Confirmed dispatch permits a single trailing slash, rejects decoded separators in codes, and shortPath uses the legacy route for reserved codes. Validation rejects same-origin clean and legacy-shaped destinations."
+      ],
+      "limitations": [
+        "Tests invoke the service directly; they do not verify framework or deployed-edge route normalization, automatic method handling, or trailing-slash behavior.",
+        "No live requests were made. This was a bounded review and does not establish behavior for every URL encoding or proxy configuration."
+      ],
+      "reviewId": "07"
+    },
+    {
+      "reviewer": "08 analytics meaning, UTC, ranking and privacy",
+      "model": "gpt-6.1-sol",
+      "scope": "Read-only review of analytics display/repository, workspace loading and clock, redirect integration, SQL schema and documented analytics semantics. Only this review artifact was written; no application source or live data was changed.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "features/analytics/server/repository.ts",
+          "line": 3,
+          "issue": "A concurrent delete and alias reuse can credit the replacement link and its owner for a redirect to the deleted link's destination.",
+          "evidence": "redirectLink reads the destination before calling recordClick, but recordClick identifies the instance solely by reusable code. An in-memory SQLite reproduction intercepted db.batch after lookup, deleted Alice's reused alias and recreated it for Bob with a different destination. The response redirected to https://old.example/ while Bob's https://new.example/ link received clicks=1 and Bob's /api/analytics returned that click. The batch's internal atomicity does not cover the earlier lookup.",
+          "fix": "Give each link instance an immutable identity, carry that identity from lookup into recording, and update both lifetime and daily counters only if the same instance still exists. If it was deleted, skip recording and retain the already selected redirect. Add a deterministic delete/recreate interleaving regression test."
+        },
+        {
+          "severity": "low",
+          "file": "features/analytics/activity-panel.tsx",
+          "line": 125,
+          "issue": "Top links uses lifetime totals without labeling its independent time scope beside the selectable period chart.",
+          "evidence": "The adjacent chart offers 7/30 days and labels its sum 'clicks this period', but Top links sorts rows by LinkRecord.clicks at line 130 and does not use range or daily counts. A link with only old clicks can rank first even when it has no clicks in the selected period; the heading and values do not explain that these are all-time figures.",
+          "fix": "Label this panel 'Top links \u00b7 all time' (and its count scope) or implement per-link period totals if the intended behavior is ranking for the selected range."
+        }
+      ],
+      "checks": [
+        "Ran five existing targeted Node/SQLite tests covering clean/legacy GET counting, HEAD exclusion, owner isolation, pause/expiration/deletion behavior, analytics batch rollback and the 30-day UTC query; all five passed.",
+        "Reproduced alias delete/recreate misattribution using only an in-memory SQLite fixture and an intercepted batch boundary; no persistent database was touched.",
+        "Verified UTC ISO-date storage and 29-day lookback align with the chart's inclusive 30-calendar-day window; the UI fills missing dates with zero.",
+        "Verified owner-scoped daily aggregation joins daily rows to links with an owner predicate, while missing identity is rejected by the service.",
+        "Verified daily storage contains only code/date/count and inspected generic request-ID failure logs; no visitor IP, user agent or unique-visitor data is collected by these paths.",
+        "Verified sample mode has an illustrative-data banner and chart subtitle, generates its activity locally, and does not write sample records through the analytics implementation.",
+        "Verified successful GET redirects count repeats and bots, HEAD does not count, recording failure preserves redirects, and cascade deletion matches documentation. Awaited write latency is an explicitly documented prototype limitation, not a new finding."
+      ],
+      "limitations": [
+        "No browser interaction, deployed-session verification or Cloudflare D1 concurrency/load exercise was performed.",
+        "The deterministic race demonstrates an admissible application-level interleaving using the repository's SQLite adapter; actual production frequency was not measured.",
+        "The workspace loads snapshots on mount or explicit refresh/mutations; this review does not claim continuously refreshed analytics.",
+        "Hosting gateway authentication and infrastructure-level visitor logging are outside these source paths and were not independently verified."
+      ],
+      "reviewId": "08"
+    },
+    {
+      "reviewer": "09",
+      "model": "gpt-6-astra",
+      "scope": "Bounded read-only review of CSV export, search/filter/status counts, copy/open handling, destination rendering, and draft data loss in presentation.ts, link-list.tsx and page.tsx; traced relevant composer/action/repository paths.",
+      "findings": [
+        {
+          "severity": "P2",
+          "file": "features/links/components/link-composer.tsx",
+          "line": 90,
+          "issue": "Collapsing filled link options silently discards the requested expiration, alias and title on submission.",
+          "evidence": "Reproduction: enter a URL, expand Link options, enter a title/custom alias/future expiration, click Fewer options, then Create link. The title, alias and expiresAt inputs become disabled at lines 73/82/90. use-link-actions.ts:43 serializes new FormData(form), which excludes disabled controls; lines 53-55 consequently send undefined title/alias and null expiresAt. The resulting link has a random alias and no expiration even though the user only collapsed the section. This is a source-established HTML form submission path, not a browser-run reproduction.",
+          "fix": "Preserve option values independently of expanded state and include them in the payload when collapsed; use hidden/inert presentation or controlled state instead of disabling configured inputs merely to collapse the UI."
+        },
+        {
+          "severity": "P2",
+          "file": "app/page.tsx",
+          "line": 173,
+          "issue": "Switching to Activity or Sample erases an unfinished link draft.",
+          "evidence": "Reproduction: fill URL and optional fields without submitting, click Activity then Links, or Sample then Live. page.tsx:173-179 conditionally mounts LinkComposer only for Links/live. Its inputs are uncontrolled (link-composer.tsx:37-46,69-91), and no draft state exists outside that component. Leaving either condition removes the DOM form; returning creates blank inputs. The normal in-app navigation therefore loses entered destination/title/alias/expiry without warning.",
+          "fix": "Keep the composer mounted while hiding it outside its view, or lift the draft into stable parent state and restore it when returning."
+        },
+        {
+          "severity": "P2",
+          "file": "features/links/use-link-actions.ts",
+          "line": 86,
+          "issue": "Resume reports success for expired links without restoring a usable redirect.",
+          "evidence": "Reproduction: pause an expiring link, let its expiration pass, then choose Resume link. link-list.tsx:194-196 derives the action only from active; the action sends only {active:true} and reports Link resumed. repository.ts:setLinkActive updates only active, leaving expires_at unchanged. presentation.ts:isActive requires expires_at > now, and the redirect contract continues returning 410. A direct pure-function check with expires_at=1/now=2 returned false both before and after active was changed from 0 to 1.",
+          "fix": "Disable or replace Resume for expired records with an explicit expiration explanation; if renewal is intended, implement an explicit validated expiry update and only claim the link resumed when it can redirect."
+        },
+        {
+          "severity": "P2",
+          "file": "features/links/use-link-actions.ts",
+          "line": 132,
+          "issue": "Clipboard-denied fallback tells the user to copy the destination URL instead of their short link.",
+          "evidence": "Reproduction: deny clipboard access and click Copy for a live active link. The catch tells the user to Open the link and copy its address. link-list.tsx:178-188 opens shortPath(code), which follows the public redirect to the destination, so the address bar no longer contains the shareable TinyLink. The displayed short path is itself a button invoking the same failing clipboard API, leaving no usable fallback for copying the full short URL.",
+          "fix": "On clipboard failure expose the absolute short URL in a selectable read-only field or dialog, allowing manual copying without following the redirect."
+        }
+      ],
+      "checks": [
+        "Inspected presentation.ts, link-list.tsx, page.tsx, use-link-actions.ts, link-composer.tsx, model.ts, validation.ts, repository.ts, use-workspace.ts and documented lifecycle requirements.",
+        "Executed presentation.ts via TypeScript transpilation with an in-memory document/Blob download stub: formula-prefixed titles receive an apostrophe; commas, quotes and newlines are quoted/escaped; reserved code r exports /r/r; active and expired statuses match expected predicate results.",
+        "Verified list filtering and top-level active counts share isActive and the same now prop; title/URL/code search is case-insensitive.",
+        "Verified destination display is React text, not HTML, and its title preserves the original URL; copy/open paths use encoded shortPath and new-window opens request noopener,noreferrer.",
+        "Confirmed CSV intentionally receives all rows, not filtered shown rows; treated this as unspecified behavior rather than a defect.",
+        "Did not repeat the already-passing 21 service tests or build."
+      ],
+      "limitations": [
+        "No browser, live service calls, source edits or destructive operations were performed.",
+        "UI reproduction steps are derived from component/event flow; draft loss and clipboard-fallback behavior were not exercised in a browser.",
+        "CSV output was inspected through a Blob stub, not opened in Excel/LibreOffice; browser download timing and spreadsheet-specific interpretation are not asserted."
+      ],
+      "reviewId": "09"
+    },
+    {
+      "reviewer": 10,
+      "model": "gpt-6.1-terra",
+      "scope": "Frontend HTTP client, workspace loading and refresh, health status, mutation lifecycle, and sign-in/error presentation",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "features/workspace/use-workspace.ts",
+          "line": 36,
+          "issue": "The health request is coupled to management refresh and mutations in both directions. A stalled health request keeps refresh() pending after link and analytics loading has completed, so successful create/pause/delete actions remain busy indefinitely. Conversely, a stalled management request prevents an already completed health result from updating the status indicator.",
+          "evidence": "load() waits for Promise.all of links and analytics before reading healthCheck, then awaits healthCheck before returning. refresh() awaits load() (lines 40\u201344). use-link-actions.ts lines 61\u201366, 85\u201390, and 109\u2013114 await refresh before clearing saving/busy; the composer disables Create while saving and link-list disables the corresponding action while busy. Fetch has no timeout.",
+          "fix": "Update health independently as soon as its request settles and do not make refresh or mutation completion wait for health. Bound or cancel requests where appropriate."
+        },
+        {
+          "severity": "medium",
+          "file": "features/workspace/use-workspace.ts",
+          "line": 23,
+          "issue": "An analytics failure discards a successful links response, leaving the link list and metrics empty or stale, including after a successful mutation.",
+          "evidence": "Promise.all rejects if either request fails, and setLinks is reached only after both succeed (lines 23\u201332). load catches and does not rethrow, so the mutation callers continue to show success after refresh even when the updated links were never applied (use-link-actions.ts lines 61\u201362, 85\u201386, 109\u2013110).",
+          "fix": "Handle the two results independently, update each successful dataset, and communicate the failed portion without suppressing the usable links response."
+        }
+      ],
+      "checks": [
+        "Read frontend request helper, workspace hook, mutation hook, page and link components, API error helper and authentication error response.",
+        "Traced promise settlement, loading flags, error display, and mutation completion against source."
+      ],
+      "limitations": [
+        "Static review only; no browser or live-service actions and no source modifications.",
+        "No automated reproduction was run; findings follow directly from the promise and state-control paths."
+      ],
+      "reviewId": "10"
+    },
+    {
+      "reviewer": "11",
+      "model": "gpt-6.1-sol",
+      "scope": "Read-only focused review of reproducible validation, scripts/verify.mjs, GitHub Actions CI, package scripts/lock hygiene, bounded execution, and evidence provenance.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "scripts/verify.mjs",
+          "line": 30,
+          "issue": "The advertised five-minute per-check bound has no forced-kill escalation and can hang indefinitely when a child ignores SIGTERM.",
+          "evidence": "The verifier uses spawnSync(timeout: 300000, killSignal: SIGTERM). A focused local reproduction of the same spawnSync options with timeout: 100 and a SIGTERM-ignoring Node child did not return; an outer two-second SIGKILL bound terminated the reproduction with status 137. docs/delivery.md:47 describes each check as having a five-minute timeout. CI has an independent 15-minute job ceiling, but local npm run verify has no equivalent hard ceiling; a hung process can prevent failed evidence from being saved.",
+          "fix": "Implement bounded process supervision with a TERM grace period followed by KILL for the owned process group, or wrap each Linux check in GNU timeout --kill-after and provide a portable equivalent. Preserve timeout/signal failure in the verification report."
+        },
+        {
+          "severity": "low",
+          "file": "scripts/verify.mjs",
+          "line": 27,
+          "issue": "The configured ESLint check is omitted from the one-command verifier and therefore from CI.",
+          "evidence": "package.json:13 defines lint and eslint.config.mjs enables Next core-web-vitals and TypeScript rules. The verifier only runs format:check, test, typecheck, build; .github/workflows/ci.yml:19 invokes that verifier. Formatting and tsc do not enforce these lint rules. A separately bounded npm run lint passed locally with exit code 0.",
+          "fix": "Include lint in the verifier's ordered checks and update the documented check list so future ESLint failures block CI and appear in evidence."
+        }
+      ],
+      "checks": [
+        {
+          "name": "ESLint",
+          "command": "timeout --signal=TERM --kill-after=2s 30s npm run lint",
+          "result": "passed",
+          "exitCode": 0
+        },
+        {
+          "name": "spawnSync bound reproduction",
+          "result": "100ms spawnSync timeout with SIGTERM-ignoring child remained blocked until outer two-second SIGKILL terminated reproduction",
+          "exitCode": 137
+        },
+        {
+          "name": "Lock and package policy inspection",
+          "result": "Single tracked pnpm-lock.yaml; packageManager pins pnpm@11.25.0; CI requests same version and frozen lockfile; pnpm workspace overrides match lockfile."
+        },
+        {
+          "name": "Evidence inspection",
+          "result": "Existing outputs/verification.json records four passed checks against older dirty base revision 733739f07e16f00baa20fd35cfa0aca89fa86021. docs/delivery.md explicitly distinguishes that dirty snapshot from the commit and separately records later 21-test run. Current HEAD inspected: 8dff010a0b3d10c4f2b8dd7fe9c5e1de96764afb; working tree clean at inspection."
+        },
+        {
+          "name": "Source mutation",
+          "result": "No source edits or external mutations; only this requested review artifact written."
+        }
+      ],
+      "limitations": [
+        "Did not reinstall dependencies or run network/package security checks; dependency upgrades are outside this review.",
+        "Did not repeat the already-passed full test/build pipeline provided in task context; independently ran lint and a bounded timeout reproduction.",
+        "Static CI review; no remote Actions execution was triggered.",
+        "SIGTERM-ignoring reproduction demonstrates a general timeout failure mode, not an observed current application build hang."
+      ],
+      "reviewId": "11"
+    },
+    {
+      "reviewer": "reviewer12",
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only README review: local quickstart, documentation links, API contracts, migrations, readiness language and professional copy.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "README.md",
+          "line": 35,
+          "issue": "The quickstart starts the development server even if a migration fails.",
+          "evidence": "The migration command uses `|| break`, which exits only the loop; the following `npm run dev` runs unconditionally. A failed or partially applied schema can therefore look like successful setup.",
+          "fix": "Make migration failure stop the setup, for example by running the loop in a shell with `set -e` and no `|| break`, or explicitly exiting on failure; start the server only after all migrations succeed."
+        },
+        {
+          "severity": "low",
+          "file": "README.md",
+          "line": 79,
+          "issue": "The statement that GitHub pushes run verification is broader than the workflow trigger.",
+          "evidence": "`.github/workflows/ci.yml` runs on pushes to `main` and pull requests, not every branch push.",
+          "fix": "Say that pushes to main and pull requests run verification; neither deploys the app."
+        }
+      ],
+      "checks": [
+        "Compared quickstart and verification descriptions with package.json, scripts/run-framework.mjs, scripts/verify.mjs, the local authentication middleware, migration SQL and CI workflow.",
+        "Compared documented endpoint behavior and operating limits with service, redirect, analytics and link repository code.",
+        "Checked that relative documentation and preview links resolve in the checkout.",
+        "Read readiness and supporting-document references; the README qualifies prototype readiness and does not claim named-person approval."
+      ],
+      "limitations": [
+        "Static review only; no install, build, browser, deployed-route or external-link verification was performed.",
+        "Reviewed the current checkout, which may change during the wider review.",
+        "No optional copy edits are required for clarity in this bounded pass."
+      ],
+      "reviewId": "12"
+    },
+    {
+      "reviewer": "13 \u2014 simulated pragmatic product-maintainer lens",
+      "model": "gpt-6.1-sol",
+      "scope": "Bounded independent source review of the 2\u20133 day URL shortener prototype: creation-to-sharing workflow, failure isolation, and unnecessary product friction. This is a simulated lens requested around Peter Steinberger, not his opinions or endorsement. No architectural expansion is recommended.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "features/links/use-link-actions.ts",
+          "line": 62,
+          "issue": "A successful create can leave the new short link hidden behind the current list filter, with no persistent result to copy.",
+          "evidence": "LinkList keeps search and filter in local state (features/links/components/link-list.tsx:50\u201358). Creating while Inactive is selected necessarily excludes the new active link; an unrelated search does the same. Creation resets the form, refreshes, and only displays a short-path toast, which is cleared after four seconds. Home's onCreated callback only exits sample mode (app/page.tsx:35); it does not reset the list or expose a copyable creation result.",
+          "fix": "Keep the returned shortUrl in a small persistent creation-success row with a Copy button until dismissed or replaced. This also avoids needing to coordinate list-filter state. Verify creating with Inactive selected and with a nonmatching search."
+        },
+        {
+          "severity": "medium",
+          "file": "features/workspace/use-workspace.ts",
+          "line": 23,
+          "issue": "An analytics fetch failure prevents successful link data from reaching the primary management UI.",
+          "evidence": "The links and analytics requests share Promise.all, and both state assignments occur only after it resolves. If /api/links succeeds but /api/analytics fails, initial load still shows an empty links array; later refreshes retain stale links even after successful mutations. The backend intentionally isolates analytics-write failure from redirects, but the dashboard couples analytics-read availability to the basic link workflow.",
+          "fix": "Set link and analytics state independently, or use Promise.allSettled and apply each successful result. Show an analytics-specific failure in Activity while preserving usable links. A mocked analytics failure with a successful links response should leave copy/pause/delete available."
+        },
+        {
+          "severity": "medium",
+          "file": "features/links/use-link-actions.ts",
+          "line": 132,
+          "issue": "The clipboard failure recovery tells users to copy the destination address instead of the short URL.",
+          "evidence": "On clipboard rejection the message says 'Open the link and copy its address.' The menu's Open link opens shortPath(l.code) (features/links/components/link-list.tsx:185\u2013189), and redirectLink returns 302 to link.url (features/links/server/redirect.ts:36\u201338). The resulting address bar contains the original long destination. The displayed short path is a button invoking the same clipboard operation, not a link that offers Copy link address.",
+          "fix": "On clipboard failure display the full short URL in a selectable read-only field, with instructions to copy it manually. Reuse the existing computed origin plus shortPath; no dependency or elaborate clipboard abstraction is needed."
+        }
+      ],
+      "checks": [
+        "Read README.md, package.json, docs/spec.md, the service test cases, creation/list/action hooks, ActivityPanel, workspace loading, API wrapper, dialogs, validation/repository/redirect implementation, and CSV presentation helpers.",
+        "Confirmed exact source lines for the three findings; traced each behavior across its callers and UI rendering.",
+        "Existing service tests cover backend lifecycle, validation, ownership, limits, redirect analytics and storage failures; the identified findings are browser state and recovery paths outside those tests.",
+        "No source edits, live HTTP requests, deployment actions, or test execution performed. Only this requested review artifact was written."
+      ],
+      "limitations": [
+        "Static review only; browser behavior was traced from source rather than exercised in a session.",
+        "No claims about production availability, gateway authentication, measured latency, accessibility conformance or deployed visual layout.",
+        "Findings are intentionally limited to small changes that improve the prototype's core workflow; no recommendation for teams, billing, enrichment, custom domains or a larger architecture."
+      ],
+      "finalRecheck": {
+        "scope": "Bounded independent source recheck of the original three findings after frontend fixes. Simulated pragmatic product-maintainer lens only; no actual Peter Steinberger opinion, approval, or endorsement.",
+        "resolved": [
+          {
+            "finding": "Created link hidden by existing list search/filter",
+            "evidence": "app/page.tsx:45\u201348 now exits sample mode, selects Links, and increments createdVersion after successful creation. LinkList is keyed by createdVersion at app/page.tsx:232, remounting its local search and filter defaults (empty search and All in features/links/components/link-list.tsx:54\u201355). The subsequent links refresh can therefore expose the new active record irrespective of the previous filter. Resetting the list is a lean acceptable alternative to the originally suggested persistent creation-result row.",
+            "status": "resolved in source"
+          },
+          {
+            "finding": "Analytics read failure blocks links management data",
+            "evidence": "features/workspace/use-workspace.ts:30\u201342 starts analytics independently with its own error/loading state; lines 43\u201349 separately await, apply, and finish loading links. No Promise.all couples success. app/page.tsx:54\u201361 labels analytics errors separately and :252\u2013253 passes analytics-specific status to ActivityPanel. An analytics failure no longer suppresses a successful links response.",
+            "status": "resolved in source"
+          },
+          {
+            "finding": "Clipboard recovery yields the original long destination address",
+            "evidence": "features/links/use-link-actions.ts copy() computes location.origin + shortPath(link.code) and stores that exact URL in manualCopy on clipboard failure. app/page.tsx:353\u2013369 renders a labeled read-only input containing manualCopy, selecting its text on focus or click, with direct manual-copy instructions. Recovery no longer requires navigating through the redirect.",
+            "status": "resolved in source"
+          }
+        ],
+        "remaining": [],
+        "verdict": "All three original findings are resolved in the inspected source. No remaining blocker from this bounded product-maintainer pass for the 2\u20133 day evaluation prototype.",
+        "checks": [
+          "Read the modified workspace hook, link action hook, Home wiring, LinkList state, and ActivityPanel loading/error handling.",
+          "Updated only this review JSON; no source changes, browser sessions, live HTTP calls, or tests run during recheck."
+        ],
+        "limitations": [
+          "Static source verification only; these browser recovery and state transitions were not exercised interactively.",
+          "The parent reported 27 passing backend tests; this reviewer did not independently rerun them and does not treat those tests as browser coverage."
+        ]
+      },
+      "reviewId": "13"
+    },
+    {
+      "reviewer": "14 \u2014 simulated systems/integration lens requested around Harrison Chase; no actual participation or endorsement",
+      "model": "gpt-6-astra",
+      "scope": "Read-only baseline review of provider boundaries, controlled failure, runtime reliability, and explainability. Only review artifact written; no external calls or source changes.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "features/workspace/use-workspace.ts",
+          "line": 36,
+          "issue": "Nonessential health probe blocks completion of successful mutation handlers.",
+          "evidence": "load() refreshes links/analytics and clears loading, then awaits healthCheck without a deadline. useLinkActions.ts lines 61, 85 and 109 await refresh() before their finally blocks clear saving/busy. A deferred-health local harness confirmed refresh remains pending after both data requests succeed and loading clears, resolving only when health resolves. A stalled health response therefore strands successful create/pause/delete operations in busy state.",
+          "fix": "Run the health state update independently of the returned data-refresh promise with the same generation guard; bound the health probe with a timeout. Ensure mutation confirmation and busy cleanup do not depend on the diagnostic endpoint."
+        },
+        {
+          "severity": "low",
+          "file": "features/workspace/api.ts",
+          "line": 15,
+          "issue": "Client discards server request IDs needed to explain and investigate failures.",
+          "evidence": "service() includes requestId in API error payloads and logs the same ID; README asks users to include any request ID. request() extracts only data.error and throws an ordinary Error. A local mock 503 containing requestId audit-request-123 produced an error with no requestId and errorMessage omitted it, so the visible dashboard error cannot be correlated without developer tools.",
+          "fix": "Preserve the validated requestId in a typed API error and render or offer copying a concise reference with failure messages; retain safe generic text for malformed responses."
+        }
+      ],
+      "checks": [
+        "Inspected provider status in docs/integrations.md, README.md and WorkspaceDialogs. Firecrawl is explicitly an external development-tool feasibility test; neither Firecrawl nor Apify is represented as active runtime integration. No provider-boundary defect found.",
+        "Inspected service routing, input parsing, validation, owner-scoped persistence, analytics, redirect behavior, frontend loading/actions, verification runner and release documentation.",
+        "Executed local mocked-fetch reproduction demonstrating requestId loss.",
+        "Executed local transpiled-hook harness with mocked React hooks and deferred health response demonstrating refresh dependency; no network requests made.",
+        "Inspected bounded body reads, atomic quota insertion, fail-fast verification report and explicit awaited-analytics latency limitation. These are documented honestly; no expansion recommended."
+      ],
+      "limitations": [
+        "Baseline inspection during concurrent work; backend agent02 is implementing generation race and expiry validation fixes. Those changes were not independently verified in this review.",
+        "No live provider calls, browser checks, deployed gateway tests, Cloudflare load tests, or full verification pipeline were run.",
+        "The health reproduction verifies promise dependency using mocked hooks, not browser rendering; the source ties mutation cleanup directly to that dependency.",
+        "Model field follows the coordinator-requested review artifact label; this review does not assert real-person participation."
+      ],
+      "finalRecheck": {
+        "checkedAt": "2026-11-04T03:45:49.211785+00:00",
+        "verdict": "PASS within reviewed scope; both original findings resolved; no remaining findings.",
+        "resolved": [
+          {
+            "finding": "Nonessential health probe blocks completion of successful mutation handlers.",
+            "evidence": "useWorkspace now launches health and analytics independently of the awaited links request and retains generation guards. request() supplies a default 15-second AbortSignal timeout. Executed deferred-response regression: links refresh completes while analytics and health remain pending. Additional reverse dependency and stale-generation regressions passed."
+          },
+          {
+            "finding": "Client discards server request IDs needed to explain and investigate failures.",
+            "evidence": "request() now validates requestId against a bounded safe-character pattern and appends Reference: <id> to the thrown error message consumed by errorMessage(). Executed regression API errors retain a safe request reference; passed."
+          }
+        ],
+        "remaining": [],
+        "providerBoundary": "Re-inspected integrations.md and Connections UI. Firecrawl evidence remains explicitly an external development-tool test, not deployed application verification. Apify remains unavailable during feasibility and inactive at runtime. No misleading active-connection claim found.",
+        "checks": {
+          "command": "node --test --test-name-pattern='links refresh completes|request.*reference|request.*ID|API.*request|older refresh|analytics and health' tests/frontend.test.mjs",
+          "passed": 4,
+          "failed": 0,
+          "exitCode": 0
+        },
+        "limitations": [
+          "Read-only source inspection and local mocked-hook regressions; no external calls or browser/live-provider tests.",
+          "This is the requested simulated systems/integration review lens; Harrison Chase did not participate or endorse the project."
+        ]
+      },
+      "reviewId": "14"
+    },
+    {
+      "reviewer": "15 - simulated conservative maintainer",
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only review of compatibility, module and API boundaries, migration safety, cleanup, and source documentation; no claim of review or approval by github.com/orneryd.",
+      "findings": [],
+      "checks": [
+        "Reviewed architecture, API and integration documentation, route adapters, service routing, link and analytics repositories, schema, migrations, and link validation.",
+        "Confirmed both clean and legacy redirect adapters share the service; shortPath retains /r/ for reserved legacy aliases.",
+        "Reproduced migration upgrade failure in an isolated in-memory SQLite database; no application source or production data was modified.",
+        "Noted migration finding to the parent and storage reviewer while implementation was in progress.",
+        "The storage reviewer added a generation backfill before the unique index. Reapplied 0000, inserted two preexisting links, then applied updated 0001: both rows migrated with distinct generations; previous migration finding resolved in the reviewed snapshot."
+      ],
+      "limitations": [
+        "Bounded snapshot review during concurrent edits; findings require revalidation against final source.",
+        "No deployed environment, browser, provider, or external account was accessed.",
+        "Simulated maintainer perspective only; no endorsement or approval is attributed to any person."
+      ],
+      "finalRecheck": {
+        "verdict": "Pass for the previously identified migration defect within the bounded SQLite review; no new maintainer-lens findings.",
+        "evidence": [
+          "Migration 0001 backfills distinct generation values before creating the unique index and supplies an insert trigger for legacy writers that omit the column.",
+          "Ran node --test tests/migration.test.mjs: 1 test passed. It exercises populated upgrade, preserved counters, two post-upgrade legacy inserts, unique generations, alias replacement isolation, and foreign-key integrity.",
+          "docs/architecture.md explains the generation token, backfill, and legacy writer trigger; README retains forward-only migration guidance.",
+          "Legacy public route compatibility remains documented in README and architecture."
+        ],
+        "limitations": [
+          "SQLite test does not establish hosted Cloudflare behavior or cover every deployment state.",
+          "Simulated maintainer perspective only; no approval or endorsement by any real person."
+        ]
+      },
+      "reviewId": "15"
+    },
+    {
+      "reviewer": 16,
+      "model": "gpt-6-astra",
+      "scope": "Read-only bounded audit of backend test assertions, harness independence, route/service boundaries, rollback realism and isolation.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "tests/helpers/database.mjs",
+          "line": 51,
+          "issue": "Clean-route regression tests bypass the actual route adapters, so they do not establish the adapter regression claimed as resolved in delivery documentation.",
+          "evidence": "The req helper directly invokes service(new Request(...), db) at lines 51\u201367. No test imports app/[code]/route.ts, app/r/[code]/route.ts, app/api/[...path]/route.ts or the framework handler. Removing the clean route file, removing its GET export or breaking its env.DB forwarding leaves these tests unaffected. docs/delivery.md identifies the missing direct adapter regression and claims clean-route coverage as its resolution.",
+          "fix": "Add a local built-worker or framework-route integration smoke test for both public paths and relevant method exports; alternatively explicitly describe the existing assertions as service path parsing coverage and retain adapter behavior as a separate unautomated release check."
+        },
+        {
+          "severity": "medium",
+          "file": "tests/service.test.mjs",
+          "line": 395,
+          "issue": "The 30-day analytics test cannot detect a shortened reporting window or missing cross-link aggregation.",
+          "evidence": "The fixture contains only one Alice row today and one row 30 days ago; expected output includes today only. A query restricted to today would produce exactly the same result. No row is placed at day\u221229 (the inclusive boundary), and no second Alice link contributes to the same day to exercise SUM.",
+          "fix": "Freeze the clock and seed owner rows at today, day\u221229 and day\u221230, plus two owned links on one included day. Assert inclusion/exclusion at both boundary dates and the summed owner total. Keep a different owner fixture."
+        },
+        {
+          "severity": "medium",
+          "file": "tests/service.test.mjs",
+          "line": 267,
+          "issue": "Most byte-limit assertions obtain their expected boundary from the implementation constant, allowing changes to the documented exact 16 KiB contract to pass.",
+          "evidence": "MAX_JSON_BYTES is imported from shared/server/http.ts and used to construct both the accepted and rejected body lengths. The separate streaming test constrains consumption to five 4096-byte chunks but does not assert an exact 16384-byte limit: for example, changing the implementation constant to 17000 leaves five reads and all parameterized boundary expectations consistent.",
+          "fix": "Use an independent documented contract value (16 * 1024) in the tests or assert MAX_JSON_BYTES === 16384 before boundary cases. Retain multibyte and streaming cancellation assertions."
+        },
+        {
+          "severity": "low",
+          "file": "tests/service.test.mjs",
+          "line": 361,
+          "issue": "The rate-limit test is dependent on wall-clock minute boundaries.",
+          "evidence": "The test performs 30 writes followed by a 31st and expects 429 without freezing Date.now(). checkMutationLimit keys counts by floor(Date.now()/60000); if execution spans a minute boundary, the final write can validly return 201. The analytics calendar test also obtains today and the cutoff from separate live-clock reads.",
+          "fix": "Mock/freeze Date.now() for the rate-limit case, then deliberately advance across a minute in a separate reset assertion. Freeze both date sources for calendar-window tests."
+        }
+      ],
+      "checks": [
+        "Read package.json test/verify commands, the complete service suite and tests/helpers/database.mjs.",
+        "Traced test requests through lib/service.ts and compared actual framework route exports.",
+        "Inspected repository SQL, redirect handling, analytics batch, rate-limit implementation and migration application.",
+        "Confirmed each setup creates a distinct in-memory SQLite database, enables foreign keys, applies SQL migrations and registers database close with test teardown.",
+        "Confirmed collision randomness uses node:test scoped mocks, and db.prepare fault replacement affects only a per-test adapter.",
+        "Confirmed rollback test induces a genuine SQLite failure on the second batch statement; helper transaction rollback removes the first counter update. This is a meaningful application regression, not a fabricated return-value mock.",
+        "Confirmed the quota test uses two in-flight service requests and real SQL; it validates application statement atomicity under this adapter, not multi-worker load or Cloudflare throughput."
+      ],
+      "limitations": [
+        "No live requests, source edits, deployment, or remote checks performed.",
+        "Did not execute the suite during concurrent backend generation/expiry edits; observations describe inspected source, and line numbers may move as that work lands.",
+        "SQLite adapter intentionally simulates D1 batch transaction behavior; passing rollback tests establish the application transaction usage under this harness, not an independent integration verification of the deployed D1 runtime.",
+        "Existing documentation already limits claims about gateway authentication, throughput and production headers; those explicitly acknowledged limits are not separately reported as defects."
+      ],
+      "remediation": {
+        "files": ["tests/service.test.mjs"],
+        "changes": [
+          "Independent literal 16384-byte acceptance and 16385-byte rejection assertions for both POST and PATCH; multibyte oversized request remains covered.",
+          "Fixed analytics clock with explicit calendar fixtures: today, day-1, day-29, day-30; verifies same-day aggregation across owned links and excludes another owner.",
+          "Fixed rate-limit clock and explicit next-minute reset assertion.",
+          "Direct smoke of actual clean, legacy and API route modules using node:module registerHooks solely for cloudflare:workers binding and extensionless TypeScript import resolution. Real service/database paths execute."
+        ],
+        "validation": {
+          "command": "npm test",
+          "passed": 26,
+          "failed": 0,
+          "node": "v24.22.1"
+        },
+        "remaining_limitations": [
+          "Adapter smoke verifies exported handlers and database forwarding; it does not verify framework route discovery or hosted gateway authentication.",
+          "No live calls, production source edits, or git operations performed."
+        ]
+      },
+      "reviewId": "16"
+    },
+    {
+      "reviewer": "17",
+      "model": "gpt-6.1-sol",
+      "scope": "Read-only migration upgrade compatibility and deployed rollback risk; generation migration, legacy runtime coexistence, private DTO fields.",
+      "findings": [
+        {
+          "severity": "high",
+          "file": "drizzle/0001_outgoing_lizard.sql",
+          "line": 1,
+          "issue": "Generation default breaks legacy runtime link creation during rollout or rollback.",
+          "evidence": "Applied0000 to an in-memory SQLite database, seeded an existing link and daily clicks, then applied0001. Two legacy INSERTs that omit generation: first succeeded with generation='', second failed 'UNIQUE constraint failed: links.generation'. HEAD legacy createLink omits generation. Thus any rollback to the previous deployed runtime loses create availability after one legacy creation, and migration-before-deploy has the same window.",
+          "fix": "Assign a fresh generation at database insertion when old writers omit it (for example, an AFTER INSERT trigger for the empty default), or use a verified expand/contract rollout. Add regression coverage for two legacy creates after the populated-database upgrade. Preserve explicit UUID generation in the new runtime."
+        }
+      ],
+      "checks": [
+        "Populated0000 to0001 upgrade preserves existing link lifetime counts and daily aggregates.",
+        "Backfilled generation has36-character UUID shape; existing rows receive distinct values in regression test.",
+        "PRAGMA foreign_key_check returned no violations after migration.",
+        "New generation migration and deleted/reused alias tests passed (2 tests,0 failures).",
+        "Public create/list record query excludes owner and generation; explicit regression assertions verify both private fields are absent.",
+        "HEAD old runtime uses explicit column lists for reads and writes; reads, status updates, deletion, and redirects tolerate the additive schema; repeated creates fail due to the default/index combination."
+      ],
+      "limitations": [
+        "No live D1 database, deployed rollout, or rollback exercised.",
+        "Review snapshot includes in-progress concurrent edits; notified backend reviewer02 and parent of the reproducible compatibility finding.",
+        "No source edits; local in-memory SQLite probes only."
+      ],
+      "reviewId": "17"
+    },
+    {
+      "reviewer": 18,
+      "model": "gpt-6.1-terra",
+      "scope": "Bounded source and documentation review of operational reliability, logging, health, rate limits, retention, prototype claims, and the new generation migration. Public site and authenticated management APIs are intended.",
+      "findings": [
+        {
+          "severity": "medium",
+          "file": "drizzle/0001_outgoing_lizard.sql",
+          "line": 1,
+          "issue": "A mixed-version rollout can reject link creation after the generation migration.",
+          "evidence": "The migration adds generation with an empty-string default, backfills existing rows, then makes generation unique. An older application version that omits generation can insert one empty value, but the next such insert conflicts with the unique index. Current code explicitly supplies a UUID in features/links/server/repository.ts:44-58. Deployment overlap and Sites migration ordering were not verified.",
+          "fix": "Document and enforce a coordinated rollout with no old writers after migration, or provide a compatible migration strategy for mixed-version writers; validate the chosen sequence before publishing."
+        },
+        {
+          "severity": "low",
+          "file": "lib/service.ts",
+          "line": 105,
+          "issue": "Unexpected failures have no diagnostic classification in application logs.",
+          "evidence": "Every non-ApiError is logged solely as request_failed plus a random request ID; analytics failures similarly log only analytics_write_failed and an ID. These records cannot distinguish schema, database availability, or other operational failure classes without additional platform diagnostics.",
+          "fix": "Add a bounded, privacy-safe failure category or operation label, retaining the request ID and avoiding raw URLs, identity values, and unsanitized exception messages."
+        }
+      ],
+      "checks": [
+        "Read health implementation and UI labeling: SELECT 1 is a point-in-time connectivity probe; documentation explicitly avoids an uptime claim.",
+        "Reviewed per-owner fixed-minute write limit, atomic increment, 429 response, and opportunistic cleanup; documentation explicitly disclaims global abuse protection.",
+        "Reviewed analytics failure handling, deletion cascade, and documented absence of daily analytics retention.",
+        "Reviewed current UUID generation and SQL backfill/unique index, plus deployment and prototype-readiness documentation.",
+        "README explicitly discloses unmeasured availability and load/restore testing; release record identifies hosted checks as separate or unverified."
+      ],
+      "limitations": [
+        "Source and documentation inspection only; no external calls, browser access, deployed probes, performance tests, or migration execution were performed.",
+        "Working tree contains ongoing changes; findings apply to the inspected snapshot and mixed-version rollout risk is conditional on deployment overlap."
+      ],
+      "reviewId": "18"
+    },
+    {
+      "reviewer": "19 \u2014 independent final backend review",
+      "model": "gpt-6-astra",
+      "scope": "Final backend source in /workspace/sites/tinylink-studio: generation-token analytics fix, additive migration and legacy-writer trigger, strict expiration validation, owner isolation, HTTP/API routes, and focused regression tests. Source inspected independently without relying on earlier review conclusions.",
+      "findings": [],
+      "checks": [
+        {
+          "check": "Focused backend and migration regression suite",
+          "command": "node --test tests/service.test.mjs tests/migration.test.mjs",
+          "result": "PASS \u2014 27 tests, 27 passed, 0 failed. Expected failure-injection logs were emitted by the analytics and database-failure tests."
+        },
+        {
+          "check": "Generation-token race fix",
+          "result": "PASS \u2014 findLink reads the private generation; redirect forwards that generation; both lifetime UPDATE and daily INSERT SELECT predicate on code and generation inside the same batch. Alias deletion/reuse cannot credit the replacement generation. Owner-facing records exclude the token."
+        },
+        {
+          "check": "Additive migration compatibility",
+          "result": "PASS \u2014 migration adds and backfills generation without rebuilding links or daily, enforces uniqueness, and assigns a random generation after legacy INSERTs omitting the column. Executed migration tests preserve existing counters and foreign keys, accept successive old-writer inserts, and reject stale-generation click attribution. Additional independent SQL probe verified a multi-row legacy INSERT produces two distinct nonempty generation tokens."
+        },
+        {
+          "check": "Strict calendar and timezone parsing",
+          "result": "PASS \u2014 inspected explicit timezone syntax, Gregorian leap-year/month-day bounds, time bounds, finite parsing, and future-only enforcement. Additional independent probes rejected 2100-02-29, April 31, offset +24:00, offset +01:60, hour 24, and second 60; accepted leap day in 2400 and a fractional timestamp with -05:30 offset."
+        },
+        {
+          "check": "Owner isolation, routes, and API failure semantics",
+          "result": "PASS within tested service boundary \u2014 management requires supplied gateway identity; reads and mutations scope by owner; foreign Origin writes are denied; method validation precedes mutation accounting; bounded JSON parsing rejects oversized/malformed input; clean and legacy redirects remain public and no-store; HEAD suppresses body and analytics; unexpected failures return generic 503 with request IDs. Route module forwarding is exercised against the SQLite adapter."
+        },
+        {
+          "check": "Scope integrity",
+          "result": "Only this review report was written. No source modifications, live requests, deployment, or database changes were performed."
+        }
+      ],
+      "limitations": [
+        "This is an automated agent review, not approval from any named person. No person approval is claimed or invented.",
+        "Tests use local SQLite with a D1-shaped adapter; this pass does not verify hosted D1 migration execution, actual framework route discovery, performance, or production availability.",
+        "Hosted gateway identity-header sanitation remains an external trust-boundary prerequisite and was not tested live.",
+        "New backend code requires migration 0001 to be applied before it serves traffic. The trigger preserves old INSERT compatibility; old deployed analytics code itself does not gain the new generation guard until replaced.",
+        "UI and supervisor files were still being edited during this bounded pass. This verdict covers inspected backend source and local tests, not the eventual whole-repository revision or publishing approval."
+      ],
+      "verdict": "PASS for the bounded backend release review: no actionable backend defects or release-blocking findings identified. Hosted release checks and final whole-repository verification remain separate.",
+      "reviewId": "19"
+    },
+    {
+      "reviewer": "20",
+      "model": "gpt-6.1-sol",
+      "scope": "Independent final product/maintainer review of UI composition, creation/options lifecycle, mutation coordination, workspace loading, accessible dialogs/chart/status, API error/copy behavior, README/spec/architecture/delivery/integration claims, verification supervisor and migration references.",
+      "findings": [],
+      "checks": [
+        {
+          "check": "Direct source inspection",
+          "result": "Reviewed app/page.tsx; link composer/list/actions/presentation; workspace hook/API/dialogs; activity panel. Confirmed synchronous write guard, delete dismissal guard, persistent composer draft/options, independent endpoint settlement, last-started refresh generation guard, request reference sanitization and manual copy fallback."
+        },
+        {
+          "check": "Documentation and integration accuracy",
+          "result": "Reviewed README.md and docs/spec.md, architecture.md, delivery.md, integrations.md. Claims distinguish historical release observations from current release evidence; CI from deployment; inactive providers from external feasibility retrieval; SQLite tests from Cloudflare/gateway behavior."
+        },
+        {
+          "check": "Verification and upgrade inspection",
+          "result": "Reviewed scripts/verify.mjs, scripts/verify-command.mjs, .github/workflows/ci.yml, both SQL migrations and migration regression test. Supervisor kills a timed-out process group even after its leader exits; additive generation upgrade preserves legacy data and older inserts in the regression."
+        },
+        {
+          "command": "node --test tests/frontend.test.mjs tests/verify.test.mjs tests/migration.test.mjs",
+          "result": "PASS: 14 tests, 0 failures (9 frontend state/ref regressions; 4 supervisor tests; 1 legacy migration test)."
+        },
+        {
+          "command": "npm run lint",
+          "result": "PASS, exit 0."
+        },
+        {
+          "command": "npm run typecheck",
+          "result": "PASS, exit 0."
+        }
+      ],
+      "limitations": [
+        "No browser interaction, live network requests or deployment performed, as instructed. DOM focus/validation behavior, responsive rendering, real clipboard permission prompts and hosted session behavior remain outside this reviewer\u2019s executable checks.",
+        "Frontend regression harness executes real hook code with a small mocked state/ref adapter; it does not model React effects, reconciliation or browser form validity.",
+        "Did not rerun full service suite or production build; those require integrated release verification. Working tree contained ongoing coordinated changes, so this report records the inspected snapshot rather than a clean committed revision.",
+        "Final docs/swarm-review.md was pending coordinator authorship and explicitly excluded from temporary missing-document findings."
+      ],
+      "verdict": "PASS within reviewed scope: no new concrete release blocker identified. Final coordinated verification and dated deployment checks still required for the integrated source.",
+      "reviewId": "20"
+    }
+  ]
+}

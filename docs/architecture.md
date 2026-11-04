@@ -8,11 +8,11 @@ The clean `/<code>` route and the legacy `/r/<code>` route share redirect behavi
 
 ## Storage
 
-| Table    | Responsibility                                          | Invariant                                          |
-| -------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `links`  | Destination, owner, status, expiration and total clicks | Global code primary key; owner-scoped management   |
-| `daily`  | Click count per code and UTC date                       | Composite key; cascade deletion with its link      |
-| `limits` | Per-owner fixed-minute write counter                    | Atomic counter update; expired entries are removed |
+| Table    | Responsibility                                          | Invariant                                                                   |
+| -------- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `links`  | Destination, owner, status, expiration and total clicks | Global code primary key; private unique generation; owner-scoped management |
+| `daily`  | Click count per code and UTC date                       | Composite key; cascade deletion with its link                               |
+| `limits` | Per-owner fixed-minute write counter                    | Atomic counter update; expired entries are removed                          |
 
 `db/schema.ts` describes the schema. Ordered SQL migrations in `drizzle/` are the deployment artifacts. Apply new migrations forward; do not edit an already applied migration to change an existing installation.
 
@@ -23,6 +23,8 @@ The clean `/<code>` route and the legacy `/r/<code>` route share redirect behavi
 **Feature slices with small boundaries.** Link management, analytics display and supporting dialogs are separate concerns. Route adapters remain thin. Validation and shared link contracts are reused where useful. Additional abstractions should remove duplication or isolate a real dependency, not merely satisfy a pattern checklist.
 
 **Durability before caching.** D1 is the source of truth. Redirects and their missing/paused/expired responses avoid caching so pause, resume and deletion take effect on subsequent requests. Caching would need an explicit invalidation policy.
+
+**Stable analytics identity.** Each link has a private immutable generation token. Click writes check the generation read with the redirect, so deleting and reusing an alias cannot credit the replacement link. The additive migration backfills existing links and includes an insert trigger for older writers that omit the token.
 
 **Availability before exact analytics.** Total and daily counts are updated in one database batch. Recording failures are logged and the redirect continues. This permits undercounting. The write is currently awaited, so a slow database still delays the redirect; a background queue would require delivery and duplication semantics before adoption.
 

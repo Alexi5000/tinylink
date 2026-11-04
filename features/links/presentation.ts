@@ -1,5 +1,9 @@
 import { shortPath, type LinkRecord } from "./model";
 
+export function isExpired(link: LinkRecord, now = Date.now()): boolean {
+  return link.expires_at !== null && link.expires_at <= now;
+}
+
 export function isActive(link: LinkRecord, now = Date.now()): boolean {
   return (
     Boolean(link.active) && (link.expires_at === null || link.expires_at > now)

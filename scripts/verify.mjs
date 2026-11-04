@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { runCommand } from "./verify-command.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const output = new URL("../outputs/", import.meta.url);
@@ -24,23 +25,18 @@ function saveReport() {
 }
 
 saveReport();
-for (const script of ["format:check", "test", "typecheck", "build"]) {
+for (const script of ["format:check", "lint", "test", "typecheck", "build"]) {
   const started = Date.now();
   console.log(`\nRunning npm run ${script}`);
-  const result = spawnSync("npm", ["run", script], {
-    cwd: root,
-    stdio: "inherit",
-    shell: false,
-    timeout: 5 * 60 * 1000,
-    killSignal: "SIGTERM",
-  });
-  const exitCode = result.status ?? 1;
+  const result = await runCommand("npm", ["run", script], { cwd: root });
+  const exitCode = result.timedOut ? 1 : (result.status ?? 1);
   report.checks.push({
     command: ["npm", "run", script],
     startedAt: new Date(started).toISOString(),
     durationMs: Date.now() - started,
     exitCode,
     status: exitCode === 0 ? "passed" : "failed",
+    ...(result.timedOut ? { timedOut: true } : {}),
     ...(result.signal ? { signal: result.signal } : {}),
     ...(result.error ? { error: result.error.message } : {}),
   });

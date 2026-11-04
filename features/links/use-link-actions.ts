@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { request, errorMessage } from "../workspace/api";
 import { shortPath, type LinkRecord } from "./model";
+import { isExpired } from "./presentation";
 
 export function useLinkActions({
   demo,
@@ -19,6 +20,9 @@ export function useLinkActions({
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState("");
+  const [manualCopy, setManualCopy] = useState("");
+  const mutationPending = useRef(false);
+  const deleting = useRef(false);
   const [remove, setRemove] = useState<LinkRecord | null>(null);
 
   useEffect(() => {
@@ -38,7 +42,8 @@ export function useLinkActions({
     onSuccess: () => void,
   ) {
     event.preventDefault();
-    if (demo) return;
+    if (demo || mutationPending.current) return;
+    mutationPending.current = true;
     const form = event.currentTarget;
     const values = new FormData(form);
     setSaving(true);
@@ -63,6 +68,7 @@ export function useLinkActions({
     } catch (error) {
       setActionError(errorMessage(error));
     } finally {
+      mutationPending.current = false;
       setSaving(false);
     }
   }
@@ -74,6 +80,14 @@ export function useLinkActions({
       );
       return;
     }
+    if (mutationPending.current) return;
+    if (isExpired(link)) {
+      setActionError(
+        "This link has expired. Create a new link to share it again.",
+      );
+      return;
+    }
+    mutationPending.current = true;
     setBusy(link.code);
     setActionError("");
     try {
@@ -87,18 +101,21 @@ export function useLinkActions({
     } catch (error) {
       setActionError(errorMessage(error));
     } finally {
+      mutationPending.current = false;
       setBusy("");
     }
   }
 
   function confirmDelete(link: LinkRecord) {
-    if (demo) return;
+    if (demo || mutationPending.current) return;
     setDeleteError("");
     setRemove(link);
   }
 
   async function deleteLink() {
-    if (!remove || demo) return;
+    if (!remove || demo || mutationPending.current) return;
+    mutationPending.current = true;
+    deleting.current = true;
     setBusy(remove.code);
     setDeleteError("");
     try {
@@ -111,6 +128,8 @@ export function useLinkActions({
     } catch (error) {
       setDeleteError(errorMessage(error));
     } finally {
+      deleting.current = false;
+      mutationPending.current = false;
       setBusy("");
     }
   }
@@ -121,16 +140,13 @@ export function useLinkActions({
       return;
     }
     setActionError("");
+    const url = location.origin + shortPath(link.code);
     try {
-      await navigator.clipboard.writeText(
-        location.origin + shortPath(link.code),
-      );
+      await navigator.clipboard.writeText(url);
       setCopied(link.code);
       setMessage("Copied. Ready to share.");
     } catch {
-      setActionError(
-        "Clipboard unavailable. Open the link and copy its address.",
-      );
+      setManualCopy(url);
     }
   }
 
@@ -140,7 +156,11 @@ export function useLinkActions({
     confirmDelete,
     deleteLink,
     copy,
-    closeDelete: () => setRemove(null),
+    closeDelete: () => {
+      if (!deleting.current) setRemove(null);
+    },
+    manualCopy,
+    closeManualCopy: () => setManualCopy(""),
     remove,
     saving,
     busy,

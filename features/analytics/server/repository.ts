@@ -1,16 +1,23 @@
 export type DailyClicks = { day: string; clicks: number };
 
-export async function recordClick(db: D1Database, code: string) {
+export async function recordClick(
+  db: D1Database,
+  code: string,
+  generation: string,
+) {
   await db.batch([
-    db.prepare("UPDATE links SET clicks=clicks+1 WHERE code=?").bind(code),
+    db
+      .prepare("UPDATE links SET clicks=clicks+1 WHERE code=? AND generation=?")
+      .bind(code, generation),
     db
       .prepare(
         `
-      INSERT INTO daily (code, day, clicks) VALUES (?, ?, 1)
+      INSERT INTO daily (code, day, clicks)
+      SELECT code, ?, 1 FROM links WHERE code=? AND generation=?
       ON CONFLICT(code, day) DO UPDATE SET clicks=clicks+1
     `,
       )
-      .bind(code, new Date().toISOString().slice(0, 10)),
+      .bind(new Date().toISOString().slice(0, 10), code, generation),
   ]);
 }
 

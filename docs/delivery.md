@@ -40,11 +40,12 @@ The implementation was re-inspected against these findings. Bounded parsing, mal
 Run `npm run verify`. The ordered pipeline is:
 
 1. `npm run format:check`
-2. `npm test`
-3. `npm run typecheck`
-4. `npm run build`
+2. `npm run lint`
+3. `npm test`
+4. `npm run typecheck`
+5. `npm run build`
 
-Each check has a five-minute timeout; the CI job has a fifteen-minute limit. The command fails fast and writes `outputs/verification.json`. The report records the revision, whether the working tree differs from that revision, start time, overall status and each check's command, timing, exit code and status. Reports are generated artifacts and are excluded from source control. GitHub Actions uploads the report so a CI result can be inspected alongside its revision.
+Each check has a five-minute timeout with process-group termination and forced shutdown after a two-second grace period on Linux/macOS; the CI job has a fifteen-minute limit. The command fails fast and writes `outputs/verification.json`. The report records the revision, whether the working tree differs from that revision, start time, overall status and each check's command, timing, exit code and status. Reports are generated artifacts and are excluded from source control. GitHub Actions uploads the report so a CI result can be inspected alongside its revision.
 
 A dirty working tree report identifies a verification of local edits, not proof that the recorded commit alone passed. For a release, pair the report with the final source snapshot and inspect CI for the pushed revision. Checks not executed after a failure must not be described as passing.
 
@@ -77,3 +78,7 @@ The reviewed implementation was published as Sites version 4 on 4 November 2026.
 The local managed preview served stale source and reported missing modules after restart. It was stopped; the browser observations above use the deployed application. Reduced-motion behavior and inline delete-error rendering were inspected in source, not exercised by fault injection in the live browser. No load, restore, abuse-response or uptime assessment was performed.
 
 [Mobile sample preview](assets/mobile-preview.png) records the deployed visual check. The retained `/github` link is useful workspace data, not a fabricated analytics fixture. The CI workflow attaches `verification.json` to each pushed revision; consult that run for the current automated result.
+
+## Second review pass
+
+The [20-agent review record](swarm-review.md) describes the subsequent multi-model review, concrete task ownership, fixes, and validation. Earlier observations above remain dated evidence for the first release. Current CI results belong to their exact pushed revision.

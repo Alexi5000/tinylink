@@ -13,33 +13,48 @@ export function useWorkspace() {
   const [health, setHealth] = useState("Checking");
   const generation = useRef(0);
 
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState("");
+
   const load = useCallback(async () => {
     const current = ++generation.current;
-    const healthCheck = request("/api/health").then(
-      () => "Operational",
-      () => "Unavailable",
+    // Health and analytics settle independently; neither delays usable links.
+    void request("/api/health").then(
+      () => {
+        if (current === generation.current) setHealth("Operational");
+      },
+      () => {
+        if (current === generation.current) setHealth("Unavailable");
+      },
     );
+    void request<{ days: DailyClicks[] }>("/api/analytics")
+      .then(
+        (data) => {
+          if (current === generation.current) setDays(data.days);
+        },
+        (error) => {
+          if (current === generation.current)
+            setAnalyticsError(errorMessage(error));
+        },
+      )
+      .finally(() => {
+        if (current === generation.current) setAnalyticsLoading(false);
+      });
     try {
-      const [linkData, analytics] = await Promise.all([
-        request<{ links: LinkRecord[] }>("/api/links"),
-        request<{ days: DailyClicks[] }>("/api/analytics"),
-      ]);
-      if (current === generation.current) {
-        setLinks(linkData.links);
-        setDays(analytics.days);
-      }
+      const data = await request<{ links: LinkRecord[] }>("/api/links");
+      if (current === generation.current) setLinks(data.links);
     } catch (error) {
       if (current === generation.current) setLoadError(errorMessage(error));
     } finally {
       if (current === generation.current) setLoading(false);
     }
-    const status = await healthCheck;
-    if (current === generation.current) setHealth(status);
   }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setAnalyticsLoading(true);
     setLoadError("");
+    setAnalyticsError("");
     await load();
   }, [load]);
 
@@ -52,5 +67,14 @@ export function useWorkspace() {
     };
   }, [load]);
 
-  return { links, days, loading, loadError, health, refresh };
+  return {
+    links,
+    days,
+    loading,
+    analyticsLoading,
+    loadError,
+    analyticsError,
+    health,
+    refresh,
+  };
 }

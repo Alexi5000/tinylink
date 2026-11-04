@@ -4,12 +4,14 @@ import {
   integer,
   primaryKey,
   index,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 export const links = sqliteTable(
   "links",
   {
     code: text("code").primaryKey(),
     owner: text("owner").notNull(),
+    generation: text("generation").notNull().default(""),
     url: text("url").notNull(),
     title: text("title").notNull(),
     createdAt: integer("created_at").notNull(),
@@ -17,7 +19,10 @@ export const links = sqliteTable(
     active: integer("active").notNull().default(1),
     clicks: integer("clicks").notNull().default(0),
   },
-  (t) => [index("links_owner").on(t.owner)],
+  (t) => [
+    index("links_owner").on(t.owner),
+    uniqueIndex("links_generation").on(t.generation),
+  ],
 );
 export const daily = sqliteTable(
   "daily",

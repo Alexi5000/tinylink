@@ -8,27 +8,35 @@ export function Dialog({
   close,
   children,
   wide = false,
+  dismissible = true,
 }: {
   title: string;
   close: () => void;
   children: ReactNode;
   wide?: boolean;
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(close);
+  const dismissibleRef = useRef(dismissible);
   useEffect(() => {
     closeRef.current = close;
-  }, [close]);
+    dismissibleRef.current = dismissible;
+  }, [close, dismissible]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const node = ref.current;
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    node?.focus();
+    (
+      node?.querySelector<HTMLElement>(
+        "button:not(:disabled),input:not(:disabled)",
+      ) ?? node
+    )?.focus();
 
     function handleKey(event: KeyboardEvent) {
-      if (event.key === "Escape") closeRef.current();
+      if (event.key === "Escape" && dismissibleRef.current) closeRef.current();
       if (event.key !== "Tab") return;
       const controls = Array.from(
         node?.querySelectorAll<HTMLElement>(
@@ -65,7 +73,12 @@ export function Dialog({
   }, []);
 
   return (
-    <div className="overlay" onClick={close}>
+    <div
+      className="overlay"
+      onClick={() => {
+        if (dismissible) close();
+      }}
+    >
       <div
         ref={ref}
         tabIndex={-1}
@@ -81,6 +94,7 @@ export function Dialog({
             className="icon-button"
             aria-label="Close dialog"
             onClick={close}
+            disabled={!dismissible}
           >
             <X size={20} />
           </button>

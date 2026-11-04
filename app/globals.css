@@ -2193,3 +2193,58 @@ h1 span {
 .status-badge.paused {
   color: #715c38;
 }
+
+/* Focus and compact data alternatives use the existing workspace palette. */
+.search:focus-within {
+  outline: 2px solid #7060bd;
+  outline-offset: 2px;
+}
+.search button {
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mobile-status.active {
+  color: #36735b;
+  background: #eaf4ed;
+}
+.manual-copy label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.manual-copy input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #cfc5e1;
+  border-radius: 7px;
+  font-size: 16px;
+}
+.daily-data {
+  margin-top: 18px;
+  color: #625775;
+  font-size: 12px;
+}
+.daily-data summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.daily-data table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.daily-data caption {
+  text-align: left;
+  padding: 8px 0;
+}
+.daily-data th,
+.daily-data td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #eae5f0;
+}
+.chart[hidden] {
+  display: none;
+}

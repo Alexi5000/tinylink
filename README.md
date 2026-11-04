@@ -19,7 +19,7 @@ Create links such as `https://tinylink.techtideai.chatgpt.site/launch`. The dash
 
 ## Run locally
 
-Use **Node.js 24 or later** and the pinned **pnpm 11.25.0** lockfile.
+Use Linux or macOS with **Node.js 24 or later** and the pinned **pnpm 11.25.0** lockfile.
 
 ```sh
 git clone https://github.com/Alexi5000/tinylink.git
@@ -31,21 +31,23 @@ npm run verify
 Initialize a fresh local database after the build completes. Run this loop once for a new database; on an existing database, apply only migrations that have not already been applied.
 
 ```sh
-for migration in drizzle/[0-9]*.sql; do
-  node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file "$migration" || break
-done
-npm run dev
+(
+  set -e
+  for migration in drizzle/[0-9]*.sql; do
+    node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file "$migration"
+  done
+) && npm run dev
 ```
 
 Open the reported localhost URL and use `/signin-with-chatgpt?return_to=/` to sign in through the loopback-only development emulator. Hosted identity comes from the Sites gateway. A deployment elsewhere must supply an equivalent trusted authentication boundary; client-supplied identity headers must never be trusted at a public origin.
 
 ## Verify changes
 
-`npm run verify` runs formatting checks, backend tests, TypeScript checking and the production build in order, stopping at the first failure. It writes revision, working-tree state, command outcomes and timings to `outputs/verification.json`. GitHub Actions runs the same pipeline and uploads its report.
+`npm run verify` runs formatting checks, lint, regression tests, TypeScript checking and the production build in order, stopping at the first failure. It writes revision, working-tree state, command outcomes and timings to `outputs/verification.json`. GitHub Actions runs the same pipeline for main-branch pushes and pull requests, and uploads its report.
 
 The backend tests use actual SQLite with a D1 adapter. They validate application behavior, not Cloudflare performance or availability. Browser and deployed-route checks are separate release checks; a passing build does not establish production readiness.
 
-For individual checks, use `npm run format:check`, `npm test`, `npm run typecheck` or `npm run build`. See the [delivery and review record](docs/delivery.md) for acceptance traceability and release evidence.
+For individual checks, use `npm run format:check`, `npm run lint`, `npm test`, `npm run typecheck` or `npm run build`. See the [delivery and review record](docs/delivery.md) for acceptance traceability and release evidence.
 
 ## API
 
@@ -74,9 +76,11 @@ This is a publicly accessible prototype, suitable for evaluating the complete wo
 - Deleting a link deletes its analytics. Historical daily rows otherwise have no automated retention policy.
 - Firecrawl and Apify are **not connected at runtime**. See [integration feasibility](docs/integrations.md).
 
+The [second review record](docs/swarm-review.md) lists the 20 reviewers, their model assignments, confirmed findings and validation limits.
+
 ## Deployment and support
 
-**GitHub pushes run verification; they do not deploy the app.** The Sites publishing workflow manages a separate hosting checkout. Apply the reviewed source there, run verification, publish through Sites, and smoke-test the deployed URL. Preserve the existing Site identity when updating this app. Sites provisions its database and applies tracked migrations.
+**Main-branch pushes and pull requests run verification; they do not deploy the app.** The Sites publishing workflow manages a separate hosting checkout. Apply the reviewed source there, run verification, publish through Sites, and smoke-test the deployed URL. Preserve the existing Site identity when updating this app. Sites provisions its database and applies tracked migrations.
 
 The provided address uses the hosted `chatgpt.site` domain. No custom domain has been purchased or configured. A custom short domain requires a hostname you control and DNS setup.
 

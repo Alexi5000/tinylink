@@ -8,11 +8,15 @@ export function ActivityPanel({
   rows,
   days,
   demo,
+  loading,
+  unavailable,
 }: {
   now: number;
   rows: LinkRecord[];
   days: DailyClicks[];
   demo: boolean;
+  loading: boolean;
+  unavailable: boolean;
 }) {
   const [range, setRange] = useState(7);
   const series = Array.from({ length: range }, (_, i) => {
@@ -30,6 +34,7 @@ export function ActivityPanel({
         : Number(days.find((d) => d.day === key)?.clicks || 0),
     };
   });
+  const hasData = demo || days.length > 0 || (!loading && !unavailable);
   const max = Math.max(10, ...series.map((d) => d.clicks)),
     sum = series.reduce((a, b) => a + b.clicks, 0),
     coords = series
@@ -56,10 +61,14 @@ export function ActivityPanel({
           </select>
         </div>
         <div className="chart-number">
-          {sum.toLocaleString()}
+          {!demo && loading && !days.length
+            ? "Loading…"
+            : !demo && unavailable && !days.length
+              ? "Unavailable"
+              : sum.toLocaleString()}
           <span>clicks this period</span>
         </div>
-        <div className="chart">
+        <div className="chart" hidden={!hasData}>
           <div className="axis">
             <span>{max}</span>
             <span>{Math.round(max / 2)}</span>
@@ -114,15 +123,44 @@ export function ActivityPanel({
             </div>
           </div>
         </div>
+        <details className="daily-data" hidden={!hasData}>
+          <summary>Daily click data · UTC</summary>
+          <table>
+            <caption>
+              {range}-day click activity{demo ? " · illustrative data" : ""}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Date (UTC)</th>
+                <th scope="col">Clicks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {series.map((day) => (
+                <tr key={day.day}>
+                  <th scope="row">{day.day}</th>
+                  <td>{day.clicks.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
         <p className="chart-note">
-          {sum
-            ? "Each successful redirect counts as one click, including repeat visits and bots."
-            : "Share a short link. Your first click will appear here."}
+          {!demo && loading
+            ? "Refreshing recorded activity…"
+            : !demo && unavailable
+              ? "Activity could not refresh. Any displayed values are the last loaded snapshot."
+              : sum
+                ? "Each successful redirect counts as one click, including repeat visits and bots."
+                : "Share a short link. Your first click will appear here."}
         </p>
       </div>
       <div className="performers">
         <div className="section-head">
-          <h2>Top links</h2>
+          <div>
+            <h2>Top links</h2>
+            <p>All-time clicks</p>
+          </div>
           <ArrowUpRight size={17} />
         </div>
         {rows.length ? (

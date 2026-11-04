@@ -27,17 +27,39 @@ export default function Home() {
   const [view, setView] = useState("Links");
   const [demo, setDemo] = useState(false);
   const [sheet, setSheet] = useState("");
+  const [createdVersion, setCreatedVersion] = useState(0);
   const urlInput = useRef<HTMLInputElement>(null);
-  const { links, days, loading, loadError, health, refresh } = useWorkspace();
+  const {
+    links,
+    days,
+    loading,
+    analyticsLoading,
+    loadError,
+    analyticsError,
+    health,
+    refresh,
+  } = useWorkspace();
   const actions = useLinkActions({
     demo,
     refresh,
-    onCreated: () => setDemo(false),
+    onCreated: () => {
+      setDemo(false);
+      setView("Links");
+      setCreatedVersion((version) => version + 1);
+    },
   });
   const now = useClock();
   const rows = demo ? sampleLinks : links;
   const total = rows.reduce((sum, link) => sum + link.clicks, 0);
-  const error = actions.actionError || (!demo ? loadError : "");
+  const workspaceError = !demo
+    ? [
+        loadError && `Links: ${loadError}`,
+        analyticsError && `Activity: ${analyticsError}`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const error = [actions.actionError, workspaceError].filter(Boolean).join(" ");
   function createFocus() {
     setView("Links");
     setDemo(false);
@@ -65,6 +87,7 @@ export default function Home() {
             {["Links", "Activity"].map((name) => (
               <button
                 className={view === name ? "selected" : ""}
+                aria-pressed={view === name}
                 key={name}
                 onClick={() => setView(name)}
               >
@@ -126,12 +149,14 @@ export default function Home() {
           <div className="data-switch" aria-label="Data source">
             <button
               className={!demo ? "selected" : ""}
+              aria-pressed={!demo}
               onClick={() => setDemo(false)}
             >
               Live
             </button>
             <button
               className={demo ? "selected" : ""}
+              aria-pressed={demo}
               onClick={() => setDemo(true)}
             >
               Sample
@@ -170,13 +195,14 @@ export default function Home() {
             )}
           </div>
         )}
-        {view === "Links" && !demo && (
+        <div hidden={view !== "Links" || demo}>
           <LinkComposer
             onCreate={actions.create}
             saving={actions.saving}
+            mutationBusy={!!actions.busy}
             urlInput={urlInput}
           />
-        )}
+        </div>
         <section className="metrics enter" aria-label="Workspace metrics">
           {[
             { icon: MousePointer2, label: "Total clicks", value: total },
@@ -203,11 +229,12 @@ export default function Home() {
         </section>
         {view === "Links" ? (
           <LinkList
+            key={createdVersion}
             now={now}
             rows={rows}
             demo={demo}
             loading={loading}
-            busy={actions.busy}
+            busy={!!actions.busy || actions.saving}
             copied={actions.copied}
             refresh={refresh}
             copy={actions.copy}
@@ -217,7 +244,14 @@ export default function Home() {
             notify={actions.notify}
           />
         ) : (
-          <ActivityPanel now={now} rows={rows} days={days} demo={demo} />
+          <ActivityPanel
+            now={now}
+            rows={rows}
+            days={days}
+            demo={demo}
+            loading={analyticsLoading}
+            unavailable={!!analyticsError}
+          />
         )}
         <div className="bottom-note enter">
           <span>
@@ -240,6 +274,7 @@ export default function Home() {
       <nav className="mobile-nav" aria-label="Mobile navigation">
         <button
           className={view === "Links" ? "selected" : ""}
+          aria-pressed={view === "Links"}
           onClick={() => setView("Links")}
         >
           <Link2 size={19} />
@@ -247,6 +282,7 @@ export default function Home() {
         </button>
         <button
           className={view === "Activity" ? "selected" : ""}
+          aria-pressed={view === "Activity"}
           onClick={() => setView("Activity")}
         >
           <Activity size={19} />
@@ -280,7 +316,11 @@ export default function Home() {
         </div>
       )}
       {actions.remove && (
-        <Dialog title="Delete link?" close={actions.closeDelete}>
+        <Dialog
+          title="Delete link?"
+          close={actions.closeDelete}
+          dismissible={!actions.busy}
+        >
           <div className="dialog-body">
             <p>
               <strong>{actions.remove.title}</strong> will stop redirecting. Its
@@ -292,7 +332,11 @@ export default function Home() {
               </div>
             )}
             <div className="dialog-buttons">
-              <button className="quiet-button" onClick={actions.closeDelete}>
+              <button
+                className="quiet-button"
+                disabled={!!actions.busy}
+                onClick={actions.closeDelete}
+              >
                 Keep link
               </button>
               <button
@@ -303,6 +347,24 @@ export default function Home() {
                 {actions.busy ? "Deleting…" : "Delete link"}
               </button>
             </div>
+          </div>
+        </Dialog>
+      )}
+      {actions.manualCopy && (
+        <Dialog title="Copy your short link" close={actions.closeManualCopy}>
+          <div className="dialog-body manual-copy">
+            <p>
+              Clipboard access is unavailable. Select and copy this address.
+            </p>
+            <label htmlFor="manual-copy-url">Short URL</label>
+            <input
+              id="manual-copy-url"
+              type="text"
+              readOnly
+              value={actions.manualCopy}
+              onFocus={(event) => event.currentTarget.select()}
+              onClick={(event) => event.currentTarget.select()}
+            />
           </div>
         </Dialog>
       )}

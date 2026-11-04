@@ -23,11 +23,11 @@ export async function listLinks(
 export function findLink(
   db: D1Database,
   code: string,
-): Promise<LinkRecord | null> {
+): Promise<(LinkRecord & { generation: string }) | null> {
   return db
-    .prepare(`SELECT ${columns} FROM links WHERE code=?`)
+    .prepare(`SELECT ${columns}, generation FROM links WHERE code=?`)
     .bind(code)
-    .first<LinkRecord>();
+    .first<LinkRecord & { generation: string }>();
 }
 
 export async function createLink(
@@ -41,8 +41,8 @@ export async function createLink(
     const inserted = await db
       .prepare(
         `
-      INSERT INTO links (code, owner, url, title, created_at, expires_at, active, clicks)
-      SELECT ?, ?, ?, ?, ?, ?, 1, 0
+      INSERT INTO links (code, owner, url, title, created_at, expires_at, active, clicks, generation)
+      SELECT ?, ?, ?, ?, ?, ?, 1, 0, ?
       WHERE (SELECT COUNT(*) FROM links WHERE owner=?) < ?
       ON CONFLICT(code) DO NOTHING
       RETURNING ${columns}
@@ -55,6 +55,7 @@ export async function createLink(
         item.title,
         Date.now(),
         item.expires,
+        crypto.randomUUID(),
         owner,
         ACCOUNT_LINK_LIMIT,
       )
