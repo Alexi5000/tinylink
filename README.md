@@ -1,10 +1,12 @@
 # TinyLink
 
+![TinyLink — Small links. Lasting impressions.](public/brand/social-dark.png)
+
 A focused URL shortener with a mobile-first workspace, custom aliases and click analytics. Built with React, Vinext and Cloudflare D1.
 
-[Open the public app](https://tinylink.techtideai.chatgpt.site) · [Private source repository](https://github.com/Alexi5000/tinylink) · [Product specification](docs/spec.md)
+[Open the public app](https://tinylink.techtideai.chatgpt.site) · [Source repository](https://github.com/Alexi5000/tinylink) · [Product specification](docs/spec.md)
 
-Create links such as `https://tinylink.techtideai.chatgpt.site/launch`. The dashboard and redirects are public; sign-in is required to manage your own links. Repository access requires an invitation.
+Create links such as `https://tinylink.techtideai.chatgpt.site/launch`. The dashboard and redirects are public; sign-in is required to manage your own links.
 
 ## Features
 
@@ -14,8 +16,10 @@ Create links such as `https://tinylink.techtideai.chatgpt.site/launch`. The dash
 - Owner-scoped management, input validation, rate limits and durable storage.
 - Labeled sample preview with no sample records written to the database.
 - Responsive layouts, keyboard-accessible dialogs and reduced-motion support.
+- Complete light, dark and system themes, with a saved preference.
+- Self-hosted typography, a vector favicon and native social previews.
 
-[View the mobile preview](docs/assets/mobile-preview.png). Sample data is clearly labeled in the interface.
+[Brand assets and theme specification](docs/design-system.md). Sample data is clearly labeled in the interface.
 
 ## Run locally
 
@@ -84,4 +88,4 @@ The [second review record](docs/swarm-review.md) lists the 20 reviewers, their m
 
 The provided address uses the hosted `chatgpt.site` domain. No custom domain has been purchased or configured. A custom short domain requires a hostname you control and DNS setup.
 
-Report reproducible defects in the private repository's issue tracker, including the affected action and any request ID. Do not include private destination URLs or credentials. Architecture, trust boundaries and operational follow-ups are documented in [architecture and decisions](docs/architecture.md).
+Report reproducible defects in the repository's issue tracker, including the affected action and any request ID. Do not include private destination URLs or credentials. Architecture, trust boundaries and operational follow-ups are documented in [architecture and decisions](docs/architecture.md).

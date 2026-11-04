@@ -83,8 +83,16 @@ export function ActivityPanel({
             >
               <defs>
                 <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#6862db" stopOpacity=".17" />
-                  <stop offset="100%" stopColor="#6862db" stopOpacity="0" />
+                  <stop
+                    offset="0%"
+                    stopColor="var(--accent)"
+                    stopOpacity=".17"
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor="var(--accent)"
+                    stopOpacity="0"
+                  />
                 </linearGradient>
               </defs>
               {[30, 105, 180].map((y) => (
@@ -94,7 +102,7 @@ export function ActivityPanel({
                   x2="800"
                   y1={y}
                   y2={y}
-                  stroke="#eaeaf0"
+                  stroke="var(--line)"
                   strokeDasharray="4 6"
                 />
               ))}
@@ -106,7 +114,7 @@ export function ActivityPanel({
                 className="chart-line"
                 points={coords}
                 fill="none"
-                stroke="#6862db"
+                stroke="var(--accent)"
                 strokeWidth="2.5"
                 vectorEffect="non-scaling-stroke"
               />

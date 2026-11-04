@@ -17,6 +17,8 @@ export const RESERVED_CODES = new Set([
   "favicon.svg",
   "_next",
   "assets",
+  "fonts",
+  "brand",
 ]);
 
 export function shortPath(code: string): string {

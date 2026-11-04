@@ -21,6 +21,7 @@ import { useLinkActions } from "@/features/links/use-link-actions";
 import { ActivityPanel } from "@/features/analytics/activity-panel";
 import { useWorkspace } from "@/features/workspace/use-workspace";
 import { WorkspaceDialogs } from "@/features/workspace/components/workspace-dialogs";
+import { ThemePicker } from "@/features/workspace/components/theme-picker";
 import { Dialog } from "@/features/workspace/components/dialog";
 
 export default function Home() {
@@ -51,6 +52,7 @@ export default function Home() {
   const now = useClock();
   const rows = demo ? sampleLinks : links;
   const total = rows.reduce((sum, link) => sum + link.clicks, 0);
+  const authenticationRequired = !demo && loadError.includes("Sign in");
   const workspaceError = !demo
     ? [
         loadError && `Links: ${loadError}`,
@@ -79,7 +81,21 @@ export default function Home() {
         <div className="header-inner">
           <Link href="/" className="brand" aria-label="TinyLink home">
             <span className="brand-mark">
-              <Link2 size={23} strokeWidth={2.4} />
+              <svg
+                viewBox="0 0 32 32"
+                width="24"
+                height="24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="m13 20-2 2a6 6 0 0 1-8-8l6-6a6 6 0 0 1 8 0m-2 4 2-2a6 6 0 0 1 8 8l-6 6a6 6 0 0 1-8 0M11 21l10-10"
+                  stroke="currentColor"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </span>
             tinylink<span className="workspace-name">Workspace</span>
           </Link>
@@ -96,6 +112,7 @@ export default function Home() {
             ))}
           </nav>
           <div className="header-actions">
+            <ThemePicker />
             <button
               className={
                 "sources-button " + (sheet === "Connections" ? "selected" : "")
@@ -174,7 +191,30 @@ export default function Home() {
             </button>
           </div>
         )}
-        {error && (
+        {authenticationRequired && (
+          <section className="welcome-card" aria-label="Start your workspace">
+            <div>
+              <span className="doc-kicker">
+                A SMALLER LINK. A BIGGER POSSIBILITY.
+              </span>
+              <h2>Your next connection starts here.</h2>
+              <p>
+                Sign in to create links and keep your click history in one
+                place.
+              </p>
+            </div>
+            {/* Authentication must navigate through the trusted gateway. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a
+              className="primary"
+              href="/signin-with-chatgpt?return_to=%2F"
+              target="_top"
+            >
+              Get started <ArrowUpRight size={18} />
+            </a>
+          </section>
+        )}
+        {error && !authenticationRequired && (
           <div className="error" role="alert">
             <p>{error}</p>
             {error.includes("Sign in") ? (
@@ -195,7 +235,7 @@ export default function Home() {
             )}
           </div>
         )}
-        <div hidden={view !== "Links" || demo}>
+        <div hidden={view !== "Links" || demo || authenticationRequired}>
           <LinkComposer
             onCreate={actions.create}
             saving={actions.saving}
