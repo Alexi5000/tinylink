@@ -1,92 +1,83 @@
 # TinyLink
 
-**Live app:** https://tinylink.techtideai.chatgpt.site
+A focused URL shortener with a mobile-first workspace, custom aliases and click analytics. Built with React, Vinext and Cloudflare D1.
 
-**GitHub:** https://github.com/Alexi5000/tinylink (private repository)
+[Open the public app](https://tinylink.techtideai.chatgpt.site) · [Private source repository](https://github.com/Alexi5000/tinylink) · [Product specification](docs/spec.md)
 
-Short links use `https://tinylink.techtideai.chatgpt.site/<alias>`. Legacy `/r/<alias>` links remain supported on this host. The previous host name is not guaranteed to redirect.
+Create links such as `https://tinylink.techtideai.chatgpt.site/launch`. The dashboard and redirects are public; sign-in is required to manage your own links. Repository access requires an invitation.
 
-A full-stack URL shortener MVP for a 2–3 day engineering exercise. React/Vinext on a Cloudflare Worker, with durable D1 (SQLite) storage. See the in-app **Guide → API docs** and **Guide → Build plan**.
+## Features
 
-## What works
+- Create, copy, search, pause, resume and delete links.
+- Optional custom aliases, titles and expiration dates.
+- All-time click totals, 7- and 30-day activity views and CSV export.
+- Owner-scoped management, input validation, rate limits and durable storage.
+- Labeled sample preview with no sample records written to the database.
+- Responsive layouts, keyboard-accessible dialogs and reduced-motion support.
 
-- Create, list, copy, pause/resume and delete links; custom aliases and optional expiration.
-- 302 redirects with no-store; 404 for unknown and 410 for inactive/expired links.
-- Actual all-time and daily click totals; 7- and 30-day charts, ranked links, search, status filters, CSV export.
-- Authenticated owner-scoped management, URL validation, unique code constraints and collision retries, 30 management writes per user per minute, health endpoint, structured failure logs.
-- Explicitly labeled sample preview; no sample records are inserted in the database.
+[View the mobile preview](docs/assets/mobile-preview.png). Sample data is clearly labeled in the interface.
 
-## Setup and validation
+## Run locally
 
-Use Node 24 and the project's pnpm lockfile. `pnpm install --frozen-lockfile`, `pnpm run dev`. The Sites workflow provisions DB and applies the tracked Drizzle migration during deployment. For standalone local setup: build, then apply the SQL migration using Wrangler to the local DB (see commands below). The hosting gateway injects authenticated identity headers. Local direct requests to management APIs without identity return 401; do not expose a direct origin that trusts arbitrary client-supplied identity headers.
-
-```sh
-node --test tests/service.test.mjs
-node node_modules/typescript/bin/tsc --noEmit
-pnpm run build
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_pink_havok.sql
-```
-
-The nine Node test groups use actual SQLite and the production service function via a small D1 adapter. They cover create/list/redirect, daily counts, HEAD exclusion, duplicate aliases, random codes, ownership, authentication, origin checks, pause/resume, expiry, cascade deletion, malformed inputs, rate limiting, analytics failure and DB health. They do not prove Cloudflare throughput or uptime. Browser QA validates the dashboard separately.
-
-## API
-
-| Method | Path | Behavior |
-|---|---|---|
-| POST | /api/links | `{url,title?,alias?,expiresAt?}` → 201 `{link,shortUrl}` |
-| GET | /api/links | Your links, latest first, maximum 500 |
-| PATCH | /api/links/:code | `{active:boolean}` |
-| DELETE | /api/links/:code | Delete link and analytics |
-| GET | /api/analytics | Last 30 UTC days with nonzero counts |
-| GET/HEAD | /:code | 302 redirect; HEAD does not count |
-| GET | /api/health | DB probe; 200 operational or 503 |
-
-No bearer API keys in this MVP. Management uses gateway-authenticated browser identity. The live app and redirects are public. Management uses gateway-authenticated identity and enforces per-account ownership.
-
-## Decisions and limitations
-
-- Single service and database: low operational overhead for a short exercise. Avoid queues/caches before measurements justify them.
-- Global case-sensitive aliases and 8-character cryptographically generated codes. A primary key enforces uniqueness; generated collisions retry up to five times. Codes are identifiers, not access secrets.
-- Visits are GET redirects including bots and repeat visitors. No unique visitor, geographic or device claims; no IP/user-agent collection.
-- Click counter and daily aggregate update in one DB batch. On analytics failure the redirect proceeds and logs a request ID; undercounting is possible. Writes are awaited, so latency testing is still needed before public launch.
-- 500 links/account is an MVP bound; the pre-insert count is not a strict concurrent quota. Pagination and robust quotas are next steps.
-- HTTP/HTTPS destinations are accepted without fetching them. This is not malware/phishing detection. Public release needs abuse reporting, destination policy, load testing and retention policy.
-- Deleting a link permanently deletes its analytics. The UI confirms this action.
-- No uptime SLA, load benchmark, backups/restore drill or public production readiness claim.
-
-## 2–3 day exercise and AI judgment
-
-1. **Day 1 — Greenfield:** clarify actors and API contract; create schema, create/list/redirect; record baseline.
-2. **Day 2 — Brownfield:** improve the baseline with pause, expiration, analytics, rate limiting and regression tests. To demonstrate a true brownfield exercise, retain a day-one commit and review the enhancement diff; this generated project is a single initial implementation, not a fabricated development history.
-3. **Day 3 — Verify:** run tests, review ownership and URL validation, exercise UI, document assumptions and publish a review build.
-
-AI assistance generated the initial implementation and tests. Reviewer priorities: inspect migration semantics, gateway trust boundary, rate-limit behavior, analytics failure handling and actual assertion quality. Do not accept generated tests as independent proof. Ambiguous requirements were resolved with explicit MVP choices above; a human reviewer owns public release decisions.
-
-## Design refresh
-
-The main product now has two views: Links and Activity. Mobile uses cards, bottom navigation and bottom-sheet dialogs; desktop uses compact rows and top navigation. Link options progressively disclose custom fields. Guide, API docs, delivery plan and workspace details are secondary dialogs. Focus is trapped and restored for dialogs, Escape closes them, and reduced-motion preferences disable animations. A 390px iframe preview was visually checked alongside desktop; the temporary preview route is excluded from release.
-
-### External source status
-
-A native Firecrawl retrieval of https://www.figma.com/ successfully returned page title, description, canonical metadata, and Open Graph image metadata. The response was cached by Firecrawl. This was a retrieval feasibility test, not a hosted integration or live snapshot embedded in the app. No scraped content was written into the site's database or source.
-
-Apify plugin discovery returned no available plugin. Sites plugin eligibility discovery is unavailable in this environment, so neither provider was declared or invoked by the hosted app. The Connections dialog accurately reports both as inactive. No provider keys are collected or exposed. Activation requires a supported eligible connector and per-visitor consent; Firecrawl would enrich individual URLs, and a selected Apify actor/dataset could supply bulk records. Existing shortener functionality remains independent.
-
-## Clone and run
+Use **Node.js 24 or later** and the pinned **pnpm 11.25.0** lockfile.
 
 ```sh
 git clone https://github.com/Alexi5000/tinylink.git
 cd tinylink
 npx --yes pnpm@11.25.0 install --frozen-lockfile
-npm run build
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_pink_havok.sql
+npm run verify
+```
+
+Initialize a fresh local database after the build completes. Run this loop once for a new database; on an existing database, apply only migrations that have not already been applied.
+
+```sh
+for migration in drizzle/[0-9]*.sql; do
+  node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file "$migration" || break
+done
 npm run dev
 ```
 
-The portable local development server emulates sign-in only on loopback. Visit `/signin-with-chatgpt?return_to=/` on its reported localhost URL to sign in. Hosted identity is supplied by Sites; deploying elsewhere requires an equivalent trusted authentication boundary. Never expose a server that trusts identity headers directly from the public internet.
+Open the reported localhost URL and use `/signin-with-chatgpt?return_to=/` to sign in through the loopback-only development emulator. Hosted identity comes from the Sites gateway. A deployment elsewhere must supply an equivalent trusted authentication boundary; client-supplied identity headers must never be trusted at a public origin.
 
-## Release and source synchronization
+## Verify changes
 
-GitHub contains the complete source snapshot, database migration, lockfile and CI workflow. GitHub pushes run tests, type checking and build; **they do not automatically deploy** to Sites. The hosting repository is managed separately by the Sites publishing workflow. Apply reviewed GitHub changes to that checkout before publishing a new release. Do not change the project ID in `.openai/hosting.json` when updating this existing Site. A new deployment needs its own registered Site identity and database.
+`npm run verify` runs formatting checks, backend tests, TypeScript checking and the production build in order, stopping at the first failure. It writes revision, working-tree state, command outcomes and timings to `outputs/verification.json`. GitHub Actions runs the same pipeline and uploads its report.
 
-The generated hostname is shortened to `tinylink.techtideai.chatgpt.site`. Attaching a custom domain requires a hostname you control plus DNS configuration; no custom domain has been purchased or configured.
+The backend tests use actual SQLite with a D1 adapter. They validate application behavior, not Cloudflare performance or availability. Browser and deployed-route checks are separate release checks; a passing build does not establish production readiness.
+
+For individual checks, use `npm run format:check`, `npm test`, `npm run typecheck` or `npm run build`. See the [delivery and review record](docs/delivery.md) for acceptance traceability and release evidence.
+
+## API
+
+Management endpoints use gateway-authenticated browser sessions; this version does not issue bearer API keys.
+
+| Method   | Path               | Result                                                                          |
+| -------- | ------------------ | ------------------------------------------------------------------------------- |
+| POST     | `/api/links`       | Create from `{url, title?, alias?, expiresAt?}`; returns `201 {link, shortUrl}` |
+| GET      | `/api/links`       | List the current owner's links, newest first                                    |
+| PATCH    | `/api/links/:code` | Pause or resume with `{active: boolean}`                                        |
+| DELETE   | `/api/links/:code` | Permanently delete a link and its analytics                                     |
+| GET      | `/api/analytics`   | Nonzero daily click totals for the last 30 UTC days                             |
+| GET/HEAD | `/:code`           | Public `302` redirect; HEAD does not increment clicks                           |
+| GET      | `/api/health`      | Database probe; `200` when available, otherwise `503`                           |
+
+Legacy `/r/:code` links remain supported. Missing links return `404`; paused or expired links return `410`. Full validation and status contracts are in the [specification](docs/spec.md).
+
+## Operating limits
+
+This is a publicly accessible prototype, suitable for evaluating the complete workflow. It has no availability SLA or completed load/restore testing.
+
+- Up to 500 links per account and 30 management write attempts per account per fixed minute.
+- Clicks count GET redirects, including bots and repeat visits. They are not unique visitors. The app does not collect IP addresses or user agents for analytics.
+- Redirects continue if analytics recording fails, so counts can be lower than actual visits. Recording is awaited and adds database latency.
+- Destinations are validated HTTP/HTTPS URLs but are not scanned for phishing or malware. Public self-service operation needs an abuse process and destination policy.
+- Deleting a link deletes its analytics. Historical daily rows otherwise have no automated retention policy.
+- Firecrawl and Apify are **not connected at runtime**. See [integration feasibility](docs/integrations.md).
+
+## Deployment and support
+
+**GitHub pushes run verification; they do not deploy the app.** The Sites publishing workflow manages a separate hosting checkout. Apply the reviewed source there, run verification, publish through Sites, and smoke-test the deployed URL. Preserve the existing Site identity when updating this app. Sites provisions its database and applies tracked migrations.
+
+The provided address uses the hosted `chatgpt.site` domain. No custom domain has been purchased or configured. A custom short domain requires a hostname you control and DNS setup.
+
+Report reproducible defects in the private repository's issue tracker, including the affected action and any request ID. Do not include private destination URLs or credentials. Architecture, trust boundaries and operational follow-ups are documented in [architecture and decisions](docs/architecture.md).

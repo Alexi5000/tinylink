@@ -1,42 +1,318 @@
-'use client';
-import {useEffect,useRef,useState} from 'react';
-import {Link2,ArrowUpRight,ArrowRight,Plus,Copy,Search,Pause,Play,Trash2,Check,Activity,RefreshCw,ShieldCheck,ChevronRight,X,MousePointer2,Download,SlidersHorizontal,MoreHorizontal,BookOpen,Plug,Flame,Box,Command,LoaderCircle,CheckCheck,Layers,Code2} from 'lucide-react';
-const shortPath=(code:string)=>(['api','r','signin-with-chatgpt','signout-with-chatgpt','callback','favicon.svg','_next','assets'].includes(code.toLowerCase())?'/r/':'/')+code;
-type Link={code:string;title:string;url:string;active:number;clicks:number;created_at:number;expires_at:number|null};
-const sample:Link[]=[{code:'launch',title:'Product launch',url:'https://example.com/new-product',active:1,clicks:1248,created_at:Date.now()-86400000,expires_at:null},{code:'newsletter',title:'The weekly read',url:'https://example.com/newsletter',active:1,clicks:862,created_at:Date.now()-2*86400000,expires_at:null},{code:'portfolio',title:'Design portfolio',url:'https://example.com/portfolio',active:1,clicks:436,created_at:Date.now()-3*86400000,expires_at:null},{code:'early-access',title:'Early access',url:'https://example.com/waitlist',active:0,clicks:218,created_at:Date.now()-5*86400000,expires_at:null}];
-function Modal({title,close,children,wide=false}:{title:string;close:()=>void;children:React.ReactNode;wide?:boolean}){const ref=useRef<HTMLDivElement>(null);useEffect(()=>{const previous=document.activeElement as HTMLElement;const node=ref.current;const old=document.body.style.overflow;document.body.style.overflow='hidden';node?.focus();function keys(e:KeyboardEvent){if(e.key==='Escape')close();if(e.key==='Tab'){const all=node?.querySelectorAll<HTMLElement>('button,a[href],input,select,[tabindex="0"]');if(!all?.length)return;const first=all[0],last=all[all.length-1];if(e.shiftKey&&(document.activeElement===first||document.activeElement===node)){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}}document.addEventListener('keydown',keys);return()=>{document.body.style.overflow=old;document.removeEventListener('keydown',keys);previous?.focus()}},[]);return <div className="overlay" onClick={close}><div ref={ref} tabIndex={-1} className={'dialog '+(wide?'wide':'')} role="dialog" aria-modal="true" aria-label={title} onClick={e=>e.stopPropagation()}><div className="dialog-head"><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={close}><X size={20}/></button></div>{children}</div></div>}
-export default function Home(){
- const [view,setView]=useState('Links'),[links,setLinks]=useState<Link[]>([]),[days,setDays]=useState<any[]>([]),[demo,setDemo]=useState(false),[health,setHealth]=useState('Checking'),[message,setMessage]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[search,setSearch]=useState(''),[filter,setFilter]=useState('All'),[range,setRange]=useState(7),[origin,setOrigin]=useState(''),[advanced,setAdvanced]=useState(false),[remove,setRemove]=useState<Link|null>(null),[sheet,setSheet]=useState(''),[help,setHelp]=useState('Quick start'),[busy,setBusy]=useState(''),[copied,setCopied]=useState('');
- const urlInput=useRef<HTMLInputElement>(null);
- async function request(path:string,opts?:RequestInit){const res=await fetch(path,opts);const data:any=await res.json();if(!res.ok)throw Error(data.error||'Please try again.');return data;}
- async function refresh(){setLoading(true);setError('');try{const [l,a]=await Promise.all([request('/api/links'),request('/api/analytics')]);setLinks(l.links);setDays(a.days)}catch(e:any){setError(e.message)}finally{setLoading(false)}try{await request('/api/health');setHealth('Operational')}catch{setHealth('Unavailable')}}
- useEffect(()=>{setOrigin(location.origin);refresh()},[]);
- useEffect(()=>{if(message){const t=setTimeout(()=>setMessage(''),4000);return()=>clearTimeout(t)}},[message]);
- useEffect(()=>{if(copied){const t=setTimeout(()=>setCopied(''),2000);return()=>clearTimeout(t)}},[copied]);
- const isActive=(l:Link)=>!!l.active&&(!l.expires_at||l.expires_at>Date.now());
- const rows=demo?sample:links,total=rows.reduce((n,l)=>n+l.clicks,0),shown=rows.filter(l=>(l.title+' '+l.url+' '+l.code).toLowerCase().includes(search.toLowerCase())&&(filter==='All'||(filter==='Active'?isActive(l):!isActive(l))));
- const series=Array.from({length:range},(_,i)=>{const date=new Date(Date.now()-(range-1-i)*86400000);const key=date.toISOString().slice(0,10);return {day:key,label:date.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'}),clicks:demo?Math.round(25+(i*17)%53+Math.sin(i)*12+i*.5):Number(days.find(d=>d.day===key)?.clicks||0)}});
- const max=Math.max(10,...series.map(d=>d.clicks)),sum=series.reduce((a,b)=>a+b.clicks,0),coords=series.map((d,i)=>`${(i/(series.length-1))*800},${180-d.clicks/max*150}`).join(' ');
- async function create(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const form=e.currentTarget;const values=new FormData(form);setSaving(true);setError('');try{const expires=values.get('expiresAt') as string;const data=await request('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:values.get('url'),title:values.get('title'),alias:values.get('alias'),expiresAt:expires?new Date(expires).toISOString():null})});setDemo(false);form.reset();setAdvanced(false);await refresh();setMessage('Your link is ready. /'+data.link.code)}catch(e:any){setError(e.message)}finally{setSaving(false)}}
- async function change(l:Link){if(demo){setMessage('Sample preview only. Create a link to try this.');return}setBusy(l.code);try{await request('/api/links/'+l.code,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({active:!l.active})});await refresh();setMessage(l.active?'Link paused':'Link resumed')}catch(e:any){setError(e.message)}finally{setBusy('')}}
- async function del(){if(!remove)return;setBusy(remove.code);try{await request('/api/links/'+remove.code,{method:'DELETE'});setRemove(null);await refresh();setMessage('Link deleted')}catch(e:any){setError(e.message)}finally{setBusy('')}}
- async function copy(l:Link){if(demo){setMessage('Sample preview only. Create a link to copy it.');return}try{await navigator.clipboard.writeText(origin+shortPath(l.code));setCopied(l.code);setMessage('Copied. Ready to share.')}catch{setError('Clipboard unavailable. Open the link and copy its address.')}}
- function exportCsv(){const csv='Title,Short path,Destination,Clicks,Status\n'+rows.map(l=>[l.title,shortPath(l.code),l.url,String(l.clicks),isActive(l)?'Active':'Inactive'].map(x=>'"'+(/^[=+@\-\t\r]/.test(x)?"'":'')+x.replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=demo?'tinylink-sample.csv':'tinylink-links.csv';a.click();URL.revokeObjectURL(a.href)}
- function createFocus(){setView('Links');requestAnimationFrame(()=>{urlInput.current?.focus();urlInput.current?.scrollIntoView({behavior:'smooth',block:'center'})})}
- return <div className="shell"><header className="header"><div className="header-inner"><a href="/" className="brand" aria-label="TinyLink home"><span className="brand-mark"><Link2 size={23} strokeWidth={2.4}/></span>tinylink<span className="workspace-name">Workspace</span></a><nav className="desktop-nav" aria-label="Main navigation">{[['Links',Link2],['Activity',Activity]].map(([name,Icon]:any)=><button className={view===name?'selected':''} key={name} onClick={()=>setView(name)}>{name}</button>)}</nav><div className="header-actions"><button className={'sources-button '+(sheet==='Connections'?'selected':'')} aria-label="Open connections" onClick={()=>setSheet('Connections')}><Plug size={16}/><span>Connections</span></button><button className="icon-button help-button" aria-label="Open guide" onClick={()=>setSheet('Guide')}><BookOpen size={18}/></button><button className="avatar" aria-label="Workspace details" onClick={()=>setSheet('Workspace')}>AC</button></div></div></header><main>
- <div className="page-intro enter"><div><div className="eyebrow"><span/> YOUR LINK WORKSPACE</div><h1>{view==='Links'?<>Short links.<br className="mobile-break"/> <span>Lasting impressions.</span></>:'Every click tells a story.'}</h1><p>{view==='Links'?'A simpler way to create, share, and understand your links.':'A clear view of what happens after you share.'}</p></div><div className="data-switch" aria-label="Data source"><button className={!demo?'selected':''} onClick={()=>setDemo(false)}>Live</button><button className={demo?'selected':''} onClick={()=>setDemo(true)}>Sample</button></div></div>
- {demo&&<div className="sample-banner"><span><span className="sample-dot"/>Sample preview · illustrative data</span><button onClick={()=>setDemo(false)}>Back to live <ArrowRight size={13}/></button></div>}
- {error&&!demo&&<div className="error" role="alert"><p>{error}</p>{error.includes('Sign in')?<a href="/signin-with-chatgpt?return_to=%2F" target="_top">Sign in <ArrowRight size={14}/></a>:<button onClick={refresh}>Try again</button>}</div>}
- {view==='Links'&&<section className="composer enter" aria-label="Create a short link"><div className="composer-top"><span className="composer-icon"><Link2 size={18}/></span><h2>Make your next connection.</h2><span className="private-tag"><ShieldCheck size={13}/> Your workspace</span></div><form onSubmit={create}><div className="input-row"><label className="destination"><Link2 size={19}/><input ref={urlInput} name="url" type="url" required maxLength={4096} placeholder="Paste a long URL…" aria-label="Destination URL" autoComplete="url"/></label><button className="primary" disabled={saving}>{saving?<LoaderCircle size={17} className="spin"/>:null}{saving?'Creating':'Create link'}{!saving&&<ArrowUpRight size={18}/>}</button></div><div className="composer-bottom"><span>Good links take you places.</span><button type="button" onClick={()=>setAdvanced(!advanced)} aria-expanded={advanced}><SlidersHorizontal size={13}/>{advanced?'Fewer options':'Link options'}</button></div><div className={'options-wrap '+(advanced?'expanded':'')}><div className="options-inner"><label>Title<input name="title" placeholder="e.g. Spring campaign" maxLength={100} disabled={!advanced}/></label><label>Custom alias<input name="alias" placeholder="spring-campaign" pattern="[a-zA-Z0-9_-]{3,40}" disabled={!advanced}/></label><label>Expires<input name="expiresAt" type="datetime-local" disabled={!advanced}/></label></div></div></form><div className="composer-glow" aria-hidden="true"/></section>}
- <section className="metrics enter" aria-label="Workspace metrics">{[[MousePointer2,'Total clicks',total],[Link2,'Short links',rows.length],[Activity,'Active links',rows.filter(isActive).length]].map(([Icon,label,value]:any)=><div className="metric" key={label}><span className="metric-label"><Icon size={14}/>{label}</span><strong>{value.toLocaleString()}<span className="metric-unit">{label==='Total clicks'?'all time':'in workspace'}</span></strong></div>)}</section>
- {view==='Links'?<section className="links-section enter"><div className="list-heading"><div><h2>Your links <span>{rows.length}</span></h2><p>Every destination, one place.</p></div><button className="icon-button" onClick={refresh} aria-label="Refresh links"><RefreshCw size={16} className={loading?'spin':''}/></button><button className="quiet-button export-button" aria-label="Export links as CSV" onClick={exportCsv}><Download size={15}/><span>Export</span></button></div><div className="list-toolbar"><div className="filters">{['All','Active','Inactive'].map(t=><button key={t} className={filter===t?'selected':''} onClick={()=>setFilter(t)}>{t}</button>)}</div><label className="search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find a link" aria-label="Search links"/>{search&&<button aria-label="Clear search" onClick={()=>setSearch('')}><X size={14}/></button>}</label></div><div className="link-list">{shown.map((l,i)=><article className="link-card" key={l.code} style={{animationDelay:`${i*45}ms`}}><div className={'domain-icon tone-'+i%4}><Link2 size={22}/></div><div className="link-content"><div className="link-title"><h3>{l.title}</h3><span className={'status-dot '+(isActive(l)?'active':'paused')} title={isActive(l)?'Active':'Inactive'}/>{!isActive(l)&&<span className="mobile-status">{l.expires_at&&l.expires_at<Date.now()?'Expired':'Paused'}</span>}</div><p className="link-destination" title={l.url}>{l.url.replace(/^https?:\/\//,'')}</p><button className="short-link" onClick={()=>copy(l)}>{shortPath(l.code)}<Copy size={12}/></button></div><div className="link-meta"><strong>{l.clicks.toLocaleString()}</strong><span>clicks</span></div><span className={'status-badge '+(isActive(l)?'active':'paused')}><i/>{isActive(l)?'Active':l.expires_at&&l.expires_at<Date.now()?'Expired':'Paused'}</span><div className="link-actions"><button className={'copy-button '+(copied===l.code?'copied':'')} onClick={()=>copy(l)} aria-label={'Copy '+l.title}>{copied===l.code?<CheckCheck size={16}/>:<Copy size={16}/>}<span>{copied===l.code?'Copied':'Copy'}</span></button><details className="more-menu"><summary aria-label={'Actions for '+l.title}><MoreHorizontal size={19}/></summary><div><button onClick={()=>demo?setMessage('Sample preview only. Create a real link first.'):window.open(shortPath(l.code),'_blank','noopener,noreferrer')}><ArrowUpRight size={15}/>Open link</button><button disabled={busy===l.code} onClick={()=>change(l)}>{l.active?<Pause size={14}/>:<Play size={14}/>} {l.active?'Pause link':'Resume link'}</button><button className="delete-action" onClick={()=>demo?setMessage('Sample links are read-only.'):setRemove(l)}><Trash2 size={14}/>Delete</button></div></details></div></article>)}</div>{!shown.length&&<div className="empty-state"><div className="empty-art" aria-hidden="true"><span/><span/><div><Link2 size={28}/></div><i className="spark-one"/><i className="spark-two"/></div><h3>{loading&&!demo?'Getting things ready…':rows.length?'Nothing here just yet.':'Your next big thing starts small.'}</h3><p>{rows.length?'Try another search or filter.':'Create your first short link. We’ll take care of the clicks.'}</p>{!rows.length&&<button onClick={()=>setDemo(true)}>Take a look around <ArrowRight size={15}/></button>}</div>}<div className="list-footer"><span>{demo?'Sample data':shown.length+' links'}<i/> {demo?'Nothing here is live':'Only visible to you'}</span><span className="foot-tip"><ShieldCheck size={13}/>Built for peace of mind</span></div></section>:<section className="activity-layout enter"><div className="chart-card"><div className="section-head"><div><h2>Click activity</h2><p>{demo?'Illustrative activity':'Recorded redirects'} · UTC</p></div><select aria-label="Analytics date range" value={range} onChange={e=>setRange(Number(e.target.value))}><option value={7}>7 days</option><option value={30}>30 days</option></select></div><div className="chart-number">{sum.toLocaleString()}<span>clicks this period</span></div><div className="chart"><div className="axis"><span>{max}</span><span>{Math.round(max/2)}</span><span>0</span></div><div className="plot"><svg viewBox="0 0 800 190" preserveAspectRatio="none" role="img" aria-label={`${sum} clicks over ${range} days`}><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#6862db" stopOpacity=".17"/><stop offset="100%" stopColor="#6862db" stopOpacity="0"/></linearGradient></defs>{[30,105,180].map(y=><line key={y} x1="0" x2="800" y1={y} y2={y} stroke="#eaeaf0" strokeDasharray="4 6"/>)}<polygon points={'0,180 '+coords+' 800,180'} fill="url(#area)"/><polyline className="chart-line" points={coords} fill="none" stroke="#6862db" strokeWidth="2.5" vectorEffect="non-scaling-stroke"/></svg><div className="x-axis">{series.filter((_,i)=>i===0||i===Math.floor(range/2)||i===range-1).map(d=><span key={d.day}>{d.label}</span>)}</div></div></div><p className="chart-note">{sum?'Each successful redirect counts as one click, including repeat visits and bots.':'Share a short link. Your first click will appear here.'}</p></div><div className="performers"><div className="section-head"><h2>Top links</h2><ArrowUpRight size={17}/></div>{rows.length?[...rows].sort((a,b)=>b.clicks-a.clicks).slice(0,4).map((l,i)=><div className="rank" key={l.code}><span>0{i+1}</span><div><strong>{l.title}</strong><div className="track"><i style={{width:Math.max(2,l.clicks/Math.max(1,...rows.map(r=>r.clicks))*100)+'%'}}/></div></div><b>{l.clicks.toLocaleString()}</b></div>):<div className="rank-empty"><Activity size={25}/><p>Your best-performing links<br/>will find their place here.</p></div>}</div></section>}
- <div className="bottom-note enter"><span><span className={'service-dot '+(health==='Operational'?'operational':'')}/>{health==='Operational'?'All systems operational':health==='Checking'?'Checking service':'Service unavailable'}</span><button onClick={()=>setSheet('Guide')}>A little guidance <ArrowUpRight size={13}/></button></div></main><nav className="mobile-nav" aria-label="Mobile navigation"><button className={view==='Links'?'selected':''} onClick={()=>setView('Links')}><Link2 size={19}/>Links</button><button className={view==='Activity'?'selected':''} onClick={()=>setView('Activity')}><Activity size={19}/>Activity</button><button className="mobile-create" onClick={createFocus} aria-label="Create a link"><Plus size={23}/></button><button aria-label="Open connections" onClick={()=>setSheet('Connections')}><Plug size={19}/>Sources</button><button onClick={()=>setSheet('Guide')}><BookOpen size={19}/>Guide</button></nav>
- {message&&<div className="toast" role="status"><span><Check size={15}/></span>{message}</div>}
- {remove&&<Modal title="Delete link?" close={()=>setRemove(null)}><div className="dialog-body"><p><strong>{remove.title}</strong> will stop redirecting. Its click history will be permanently removed.</p><div className="dialog-buttons"><button className="quiet-button" onClick={()=>setRemove(null)}>Keep link</button><button className="danger" disabled={!!busy} onClick={del}>{busy?'Deleting…':'Delete link'}</button></div></div></Modal>}
- {sheet==='Connections'&&<Modal title="A little more context." close={()=>setSheet('')}><div className="dialog-body"><p className="dialog-description">Bring useful page details into your links. Your links work independently of these sources.</p><div className="integration"><div className="integration-icon fire"><Flame size={23}/></div><div><h3>Firecrawl</h3><span className="integration-state">Not connected to this app</span></div><span className="pending-dot"/></div><p className="integration-copy">Enrich links with page titles, descriptions, and preview images. A retrieval test succeeded; in-app access is still pending.</p><div className="integration"><div className="integration-icon apify"><Box size={22}/></div><div><h3>Apify</h3><span className="integration-state">Connection required</span></div><span className="pending-dot"/></div><p className="integration-copy">Import structured website data from a selected actor or dataset once a connection is available.</p><div className="connection-note"><ShieldCheck size={18}/><p>Neither source is active in TinyLink yet. No credentials are stored in the browser, and no page is scraped when you create a link.</p></div></div></Modal>}
- {sheet==='Workspace'&&<Modal title="Your workspace" close={()=>setSheet('')}><div className="dialog-body"><div className="workspace-profile"><span className="avatar">AC</span><div><h3>Your link workspace</h3><p>Personal workspace</p></div></div><div className="workspace-row"><span>Link capacity</span><strong>{links.length} / 500</strong></div><div className="workspace-row"><span>Link management</span><strong>Signed-in account only</strong></div><p className="integration-copy">The app and short-link redirects are public. Sign in to create links and view your own analytics.</p><button className="quiet-button" onClick={()=>{setSheet('');setDemo(!demo)}}>{demo?'Return to live data':'Explore sample workspace'}<ArrowRight size={15}/></button></div></Modal>}
- {sheet==='Guide'&&<Modal title="The essentials" close={()=>setSheet('')} wide><div className="guide-tabs">{['Quick start','API docs','Build plan'].map(t=><button className={help===t?'selected':''} key={t} onClick={()=>setHelp(t)}>{t}</button>)}</div><div className="dialog-body">{help==='Quick start'?<div className="quick-guide">{[['01','Create','Paste a destination URL. Add a name, alias, or expiration under Link options.'],['02','Share','Copy your short link. Anyone with the link can open its destination.'],['03','Understand','Visit Activity for real click totals. Pause, resume, or delete from a link’s menu.']].map(([n,t,d])=><div key={n}><span>{n}</span><section><h3>{t}</h3><p>{d}</p></section></div>)}<div className="connection-note"><ShieldCheck size={18}/><p>Sample mode uses illustrative data. It never adds records or changes your real links.</p></div></div>:help==='API docs'?<Docs/>:<BuildPlan/>}</div></Modal>}
- </div>
+"use client";
+import { useRef, useState } from "react";
+import Link from "next/link";
+import { useClock } from "@/features/workspace/use-clock";
+import {
+  Link2,
+  ArrowUpRight,
+  ArrowRight,
+  Plus,
+  Check,
+  Activity,
+  MousePointer2,
+  BookOpen,
+  Plug,
+} from "lucide-react";
+import { LinkComposer } from "@/features/links/components/link-composer";
+import { LinkList } from "@/features/links/components/link-list";
+import { sampleLinks } from "@/features/links/sample-links";
+import { isActive } from "@/features/links/presentation";
+import { useLinkActions } from "@/features/links/use-link-actions";
+import { ActivityPanel } from "@/features/analytics/activity-panel";
+import { useWorkspace } from "@/features/workspace/use-workspace";
+import { WorkspaceDialogs } from "@/features/workspace/components/workspace-dialogs";
+import { Dialog } from "@/features/workspace/components/dialog";
+
+export default function Home() {
+  const [view, setView] = useState("Links");
+  const [demo, setDemo] = useState(false);
+  const [sheet, setSheet] = useState("");
+  const urlInput = useRef<HTMLInputElement>(null);
+  const { links, days, loading, loadError, health, refresh } = useWorkspace();
+  const actions = useLinkActions({
+    demo,
+    refresh,
+    onCreated: () => setDemo(false),
+  });
+  const now = useClock();
+  const rows = demo ? sampleLinks : links;
+  const total = rows.reduce((sum, link) => sum + link.clicks, 0);
+  const error = actions.actionError || (!demo ? loadError : "");
+  function createFocus() {
+    setView("Links");
+    setDemo(false);
+    requestAnimationFrame(() => {
+      urlInput.current?.focus();
+      urlInput.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "center",
+      });
+    });
+  }
+  return (
+    <div className="shell">
+      <header className="header">
+        <div className="header-inner">
+          <Link href="/" className="brand" aria-label="TinyLink home">
+            <span className="brand-mark">
+              <Link2 size={23} strokeWidth={2.4} />
+            </span>
+            tinylink<span className="workspace-name">Workspace</span>
+          </Link>
+          <nav className="desktop-nav" aria-label="Main navigation">
+            {["Links", "Activity"].map((name) => (
+              <button
+                className={view === name ? "selected" : ""}
+                key={name}
+                onClick={() => setView(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </nav>
+          <div className="header-actions">
+            <button
+              className={
+                "sources-button " + (sheet === "Connections" ? "selected" : "")
+              }
+              aria-label="Open connections"
+              onClick={() => setSheet("Connections")}
+            >
+              <Plug size={16} />
+              <span>Connections</span>
+            </button>
+            <button
+              className="icon-button help-button"
+              aria-label="Open guide"
+              onClick={() => setSheet("Guide")}
+            >
+              <BookOpen size={18} />
+            </button>
+            <button
+              className="avatar"
+              aria-label="Workspace details"
+              onClick={() => setSheet("Workspace")}
+            >
+              <Link2 size={18} />
+            </button>
+          </div>
+        </div>
+      </header>
+      <main>
+        <div className="page-intro enter">
+          <div>
+            <div className="eyebrow">
+              <span /> YOUR LINK WORKSPACE
+            </div>
+            <h1>
+              {view === "Links" ? (
+                <>
+                  Short links.
+                  <br className="mobile-break" />{" "}
+                  <span>Lasting impressions.</span>
+                </>
+              ) : (
+                "Every click tells a story."
+              )}
+            </h1>
+            <p>
+              {view === "Links"
+                ? "A simpler way to create, share, and understand your links."
+                : "A clear view of what happens after you share."}
+            </p>
+          </div>
+          <div className="data-switch" aria-label="Data source">
+            <button
+              className={!demo ? "selected" : ""}
+              onClick={() => setDemo(false)}
+            >
+              Live
+            </button>
+            <button
+              className={demo ? "selected" : ""}
+              onClick={() => setDemo(true)}
+            >
+              Sample
+            </button>
+          </div>
+        </div>
+        {demo && (
+          <div className="sample-banner">
+            <span>
+              <span className="sample-dot" />
+              Sample preview · illustrative data
+            </span>
+            <button onClick={() => setDemo(false)}>
+              Back to live <ArrowRight size={13} />
+            </button>
+          </div>
+        )}
+        {error && (
+          <div className="error" role="alert">
+            <p>{error}</p>
+            {error.includes("Sign in") ? (
+              // Platform authentication requires a full top-level navigation.
+              // eslint-disable-next-line @next/next/no-html-link-for-pages
+              <a href="/signin-with-chatgpt?return_to=%2F" target="_top">
+                Sign in <ArrowRight size={14} />
+              </a>
+            ) : (
+              <button
+                onClick={() => {
+                  actions.clearActionError();
+                  void refresh();
+                }}
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
+        {view === "Links" && !demo && (
+          <LinkComposer
+            onCreate={actions.create}
+            saving={actions.saving}
+            urlInput={urlInput}
+          />
+        )}
+        <section className="metrics enter" aria-label="Workspace metrics">
+          {[
+            { icon: MousePointer2, label: "Total clicks", value: total },
+            { icon: Link2, label: "Short links", value: rows.length },
+            {
+              icon: Activity,
+              label: "Active links",
+              value: rows.filter((link) => isActive(link, now)).length,
+            },
+          ].map(({ icon: Icon, label, value }) => (
+            <div className="metric" key={label}>
+              <span className="metric-label">
+                <Icon size={14} />
+                {label}
+              </span>
+              <strong>
+                {value.toLocaleString()}
+                <span className="metric-unit">
+                  {label === "Total clicks" ? "all time" : "in workspace"}
+                </span>
+              </strong>
+            </div>
+          ))}
+        </section>
+        {view === "Links" ? (
+          <LinkList
+            now={now}
+            rows={rows}
+            demo={demo}
+            loading={loading}
+            busy={actions.busy}
+            copied={actions.copied}
+            refresh={refresh}
+            copy={actions.copy}
+            change={actions.change}
+            onDelete={actions.confirmDelete}
+            onPreview={() => setDemo(true)}
+            notify={actions.notify}
+          />
+        ) : (
+          <ActivityPanel now={now} rows={rows} days={days} demo={demo} />
+        )}
+        <div className="bottom-note enter">
+          <span>
+            <span
+              className={
+                "service-dot " + (health === "Operational" ? "operational" : "")
+              }
+            />
+            {health === "Operational"
+              ? "Service reachable"
+              : health === "Checking"
+                ? "Checking service"
+                : "Service unavailable"}
+          </span>
+          <button onClick={() => setSheet("Guide")}>
+            A little guidance <ArrowUpRight size={13} />
+          </button>
+        </div>
+      </main>
+      <nav className="mobile-nav" aria-label="Mobile navigation">
+        <button
+          className={view === "Links" ? "selected" : ""}
+          onClick={() => setView("Links")}
+        >
+          <Link2 size={19} />
+          Links
+        </button>
+        <button
+          className={view === "Activity" ? "selected" : ""}
+          onClick={() => setView("Activity")}
+        >
+          <Activity size={19} />
+          Activity
+        </button>
+        <button
+          className="mobile-create"
+          onClick={createFocus}
+          aria-label="Create a link"
+        >
+          <Plus size={23} />
+        </button>
+        <button
+          aria-label="Open connections"
+          onClick={() => setSheet("Connections")}
+        >
+          <Plug size={19} />
+          Sources
+        </button>
+        <button onClick={() => setSheet("Guide")}>
+          <BookOpen size={19} />
+          Guide
+        </button>
+      </nav>
+      {actions.message && (
+        <div className="toast" role="status">
+          <span>
+            <Check size={15} />
+          </span>
+          {actions.message}
+        </div>
+      )}
+      {actions.remove && (
+        <Dialog title="Delete link?" close={actions.closeDelete}>
+          <div className="dialog-body">
+            <p>
+              <strong>{actions.remove.title}</strong> will stop redirecting. Its
+              click history will be permanently removed.
+            </p>
+            {actions.deleteError && (
+              <div className="error" role="alert">
+                <p>{actions.deleteError}</p>
+              </div>
+            )}
+            <div className="dialog-buttons">
+              <button className="quiet-button" onClick={actions.closeDelete}>
+                Keep link
+              </button>
+              <button
+                className="danger"
+                disabled={!!actions.busy}
+                onClick={actions.deleteLink}
+              >
+                {actions.busy ? "Deleting…" : "Delete link"}
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+      <WorkspaceDialogs
+        sheet={sheet}
+        close={() => setSheet("")}
+        linkCount={links.length}
+        demo={demo}
+        onToggleSample={() => setDemo(!demo)}
+      />
+    </div>
+  );
 }
-function Docs(){return <div className="docs-grid"><section className="panel doc"><span className="doc-kicker">API REFERENCE · V1</span><h2>Simple endpoints.<br/>Predictable responses.</h2><p>Management requests require your signed-in ChatGPT identity. Short-link redirects are public. Use same-origin requests from the app; API keys are outside the MVP scope.</p>{[['POST','/api/links','Create a short link. Returns 201; duplicate aliases return 409.'],['GET','/api/links','List your latest links (maximum 500).'],['PATCH','/api/links/:code','Pause or resume using { "active": false }.'],['DELETE','/api/links/:code','Delete a link and its analytics.'],['GET','/api/analytics','Daily click totals for the last 30 UTC days.'],['GET','/:code','302 redirect; missing links return 404, inactive links 410.'],['GET','/api/health','Check application and database availability.']].map(([m,p,d])=><div className="endpoint" key={m+p}><div><span>{m}</span><code>{p}</code></div><p>{d}</p></div>)}</section><div><section className="code-card"><div><Code2 size={17}/> Create a link</div><pre>{`fetch('/api/links', {\n  method: 'POST',\n  headers: {\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    url: 'https://example.com/launch',\n    title: 'Product launch',\n    alias: 'launch'\n  })\n})`}</pre><div>201 CREATED</div><pre>{`{\n  "link": {\n    "code": "launch",\n    "active": 1,\n    "clicks": 0,\n    "...": "additional link fields"\n  },\n  "shortUrl": "<origin>/launch"\n}`}</pre></section><section className="panel doc"><h2>Designed to fail clearly.</h2><p>400 validation · 401 authentication · 403 origin · 404 missing · 409 conflict · 410 inactive · 429 rate limit · 503 unavailable</p><p>30 management writes per user per minute. A 429 includes Retry-After. Redirects use no-store so pauses take effect without stale browser caching.</p><p>Clicks count GET redirects, including bots. HEAD requests do not count. No IP addresses, user agents, or cookies are stored for analytics.</p></section></div></div>}
-function BuildPlan(){return <><div className="plan-intro"><span className="plan-icon"><Layers size={30}/></span><div><h2>Three days. One focused product.</h2><p>Ship the useful core, prove the edge cases, then improve what you learned.</p></div><span className="badge active">Delivery guide</span></div><div className="plan-grid">{[['01','Build the foundation','GREENFIELD',['Define create → redirect → measure behavior','Implement authenticated CRUD and durable storage','Add collision-safe aliases and URL validation','Document expiration and ownership decisions']],['02','Make it dependable','BROWNFIELD',['Extend the working baseline with pause and expiry','Add mutation rate limits and database health checks','Keep redirects working if analytics writes fail','Regression-test changes against the day-one API']],['03','Prove it. Polish it.','TESTS & DOCUMENTATION',['Test ownership, collisions, expiry, and redirects','Verify mobile layout and empty/error states','Document setup, API contracts, and tradeoffs','Review AI-generated code and record human decisions']]].map(([n,title,tag,items])=><section className="panel plan-day" key={n as string}><span className="day-number">{n}</span><span className="doc-kicker">{tag}</span><h2>{title}</h2><ul>{(items as string[]).map(i=><li key={i}><Check size={15}/>{i}</li>)}</ul></section>)}</div><div className="docs-grid"><section className="panel doc"><h2>Ambiguity → explicit decisions</h2>{[['Who can create links?','Signed-in users; every management operation checks ownership.'],['What counts as a click?','Each successful GET redirect. Bots and repeats count; unique visitors are not claimed.'],['What if analytics fails?','Redirect still succeeds; log a failure for investigation. Counts may underreport.'],['What is out of scope?','Teams, billing, custom domains, malware scanning, public API keys, and guaranteed uptime.']].map(([q,a])=><div className="decision" key={q}><strong>{q}</strong><p>{a}</p></div>)}</section><section className="panel doc"><h2>Engineering judgment</h2><p>One application, one SQLite-compatible database. No queue or cache until traffic and measurements justify them.</p><p>Random 8-character codes with database uniqueness and collision retries. Alias matching is case-sensitive. A 302 keeps destinations flexible.</p><p>This MVP supports public redirects and private, account-scoped management. Broader production use still needs abuse controls and load testing.</p><div className="callout"><ShieldCheck size={20}/><p>AI can draft code and suggest tests. A human still owns requirements, threat analysis, code review, and the final release decision.</p></div></section></div></>}

@@ -8,6 +8,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,6 +16,11 @@ jobs:
           node-version: 24
       - name: Install dependencies
         run: npx --yes pnpm@11.25.0 install --frozen-lockfile
-      - run: npm test
-      - run: npm run typecheck
-      - run: npm run build
+      - run: npm run verify
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification
+          path: outputs/verification.json
+          if-no-files-found: warn
