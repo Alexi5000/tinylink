@@ -1,0 +1,603 @@
+{
+  "review": "Final release review after visual-system delivery",
+  "baselineHostingRevision": "8b3a5258abdf23f746c931ba6468e4031bbea917",
+  "baselineGitHubRevision": "58aabdfb1e660a5b905fbf92c43e3955b0839113",
+  "distinctReviewers": 20,
+  "models": {
+    "gpt-6.1-sol": 7,
+    "gpt-6.1-terra": 7,
+    "gpt-6-astra": 6
+  },
+  "method": "Distinct agents reviewed bounded scopes in batches. Early backend reviews covered unchanged code; later UI and integrated reviews covered the final working changes. Reviewer 08 implemented its confirmed fixes after initial review. Reviewers 12 and 15 rechecked the signed-out Create correction. This is not a claim that all reviewers audited one immutable commit.",
+  "reviews": [
+    {
+      "reviewer": 1,
+      "model": "gpt-6.1-sol",
+      "scope": "API contracts, validation, status codes, and actual route adapters",
+      "findings": [],
+      "checks": [
+        "Read docs/spec.md and traced lib/service.ts, shared/server/http.ts, link validation/repository/redirect handlers, public model, and workspace API client.",
+        "Inspected app/api/[...path]/route.ts, app/[code]/route.ts, and app/r/[code]/route.ts exports and database forwarding.",
+        "Ran node --test tests/service.test.mjs: 26 tests passed, 0 failed, including real adapter imports with a substituted Cloudflare binding, body validation and byte limits, ownership, method/status/Allow behavior, expiration validation, and redirect caching."
+      ],
+      "limits": [
+        "Read-only source review; no source changes made.",
+        "Did not exercise deployed framework route discovery, trusted gateway identity injection, or hosted Cloudflare bindings. Adapter tests replace the unavailable cloudflare:workers runtime binding.",
+        "No credential, network, or browser actions performed."
+      ]
+    },
+    {
+      "reviewer": 2,
+      "model": "gpt-6.1-terra",
+      "scope": "D1/SQLite schema and migrations, concurrency, immutable link generation, and analytics atomicity",
+      "findings": [],
+      "checks": [
+        "Read the specification, schema, both migrations, link and analytics repositories, rate limiter, migration tests, and SQLite test adapter.",
+        "Conditional INSERT enforces the owner quota in the insertion statement; code conflicts are handled without overwriting existing rows.",
+        "Redirect analytics batches both counter writes and predicates them on the original code and generation. The migration backfills existing links and assigns generations to legacy inserts.",
+        "Ran node --test tests/service.test.mjs tests/migration.test.mjs: 27 tests passed, including rollback on the second analytics statement, deletion/reuse interleaving, quota, migration and legacy inserts."
+      ],
+      "limits": [
+        "Tests use a local synchronous SQLite adapter; they do not independently verify deployed D1 transaction semantics, actual concurrent D1 requests, or migration execution on the hosted database.",
+        "No browser, network, production credentials, or source modifications were used."
+      ]
+    },
+    {
+      "reviewer": 3,
+      "model": "gpt-6-astra",
+      "scope": "Read-only source/spec security review: owner isolation, trusted gateway authentication, write-origin controls, redirect handling, and privacy.",
+      "findings": [],
+      "checks": [
+        {
+          "area": "Owner isolation",
+          "evidence": "lib/service.ts:52-84; features/links/server/repository.ts:8-20,79-110; features/analytics/server/repository.ts:24-44",
+          "result": "Management requires identity; list, mutations and analytics bind owner in SQL; mismatched mutations return 404. Public lookup is confined to redirect behavior. API selection omits owner and immutable generation.",
+          "test_ideas": [
+            "Retain two-owner list/analytics/PATCH/DELETE regression at tests/service.test.mjs:180."
+          ]
+        },
+        {
+          "area": "Gateway trust",
+          "evidence": "docs/architecture.md Trust and privacy; worker/index.ts; scripts/vite/sites-vite-plugin.ts:47-120; vite.config.ts",
+          "result": "Production identity header is explicitly a trusted gateway contract. Local emulation removes inbound identity headers and only injects identity for loopback host and peer with local cookie. No concrete trust-boundary violation established from reviewed source.",
+          "test_ideas": [
+            "At deployment boundary, verify forged identity headers are stripped or overwritten and direct worker ingress is unavailable."
+          ]
+        },
+        {
+          "area": "Write controls",
+          "evidence": "lib/service.ts:55-65; shared/server/http.ts:55-107; shared/server/rate-limit.ts",
+          "result": "Foreign supplied Origin is rejected before mutation accounting. Missing Origin is allowed as specified. Bodies are bounded while streaming; SQL uses bound parameters; mutation attempts are owner-rate-limited.",
+          "test_ideas": [
+            "Extend Origin matrix to PATCH and DELETE, opaque Origin null, and explicitly missing Origin."
+          ]
+        },
+        {
+          "area": "Redirect handling",
+          "evidence": "features/links/server/validation.ts:19-54; features/links/server/redirect.ts:9-46; app/chatgpt-auth.ts:61-80",
+          "result": "Creation permits HTTP(S) only, rejects embedded credentials and known same-origin short links. Public redirects omit private fields, send no-store and no-referrer; negative responses are no-store. Auth return paths validate parsed origin and exclude auth routes.",
+          "test_ideas": [
+            "Maintain unsafe-scheme, encoded-path, HEAD, paused/expired, cache and referrer regressions."
+          ]
+        },
+        {
+          "area": "Privacy",
+          "evidence": "features/analytics/server/repository.ts; lib/service.ts:93-108; features/links/server/redirect.ts:27-32; shared/server/http.ts:18-31",
+          "result": "Analytics persist counts only, failure logs contain event plus generated request ID, and management JSON is no-store. No visitor IP/user-agent or destination/owner leakage in inspected application logs."
+        }
+      ],
+      "limits": [
+        "Static source and existing-test inspection only; no commands executing tests, browser, network, credential access or deployed gateway validation.",
+        "Gateway header authenticity and ingress isolation are documented hosting assumptions, not independently proven by application code.",
+        "Intentional caller-selected external redirects and absent production abuse operations are documented prototype scope, not counted as defects."
+      ]
+    },
+    {
+      "reviewer": 4,
+      "model": "gpt-6.1-sol",
+      "scope": "Read-only reliability review: failure behavior, request body/time limits, analytics failure path, health and logging.",
+      "findings": [],
+      "checks": [
+        {
+          "check": "Service regression suite",
+          "command": "node --test tests/service.test.mjs",
+          "result": "PASS: 26 tests, 0 failures; includes oversized bodies, stream cancellation, analytics batch rollback, health failures and request IDs."
+        },
+        {
+          "check": "Request parsing",
+          "evidence": "shared/server/http.ts:54-93",
+          "result": "16 KiB actual-byte enforcement, advertised-size early rejection, cancellation after oversize, strict UTF-8/JSON object parsing, and reader release. Client parse errors return 400; oversize returns 413."
+        },
+        {
+          "check": "Failure responses",
+          "evidence": "lib/service.ts:89-115",
+          "result": "Expected errors preserve status/headers and request ID; unexpected failures log only event/request ID and return cache-disabled generic 503; HEAD bodies are stripped."
+        },
+        {
+          "check": "Analytics failure behavior",
+          "evidence": "features/links/server/redirect.ts:28-39; features/analytics/server/repository.ts:10-28; tests/service.test.mjs:463-479",
+          "result": "Atomic batch prevents partial counter updates; rejected analytics writes are logged and redirect still returns 302; HEAD skips analytics."
+        },
+        {
+          "check": "Health and logging",
+          "evidence": "lib/service.ts:35-43,104-109; features/links/server/redirect.ts:32-36",
+          "result": "Health probes the database, has no authentication requirement, and database exceptions become 503. Logs omit identity and destination URLs."
+        }
+      ],
+      "limits": [
+        {
+          "limit": "No application-level body-read or D1 deadline",
+          "evidence": "shared/server/http.ts:67-69; lib/service.ts:35-43; features/links/server/redirect.ts:30",
+          "assessment": "Byte limits do not impose elapsed-time limits. Slow request streams and slow D1 operations depend on hosting/runtime termination. Hardening opportunity before availability commitments; no prototype SLA or latency target is claimed."
+        },
+        {
+          "limit": "Analytics is awaited before redirect response",
+          "evidence": "README.md:78; docs/architecture.md:29",
+          "assessment": "Explicitly accepted prototype limit. Rejected writes preserve redirects, while slow writes add latency; do not describe analytics as fully isolated from redirect latency."
+        },
+        {
+          "limit": "Minimal diagnostic detail",
+          "evidence": "lib/service.ts:105; features/links/server/redirect.ts:34",
+          "assessment": "Logs provide event and request ID only; no exception category, route or duration. Operational diagnosis is limited, but this matches the documented privacy-conscious logging approach and is not a functional release blocker."
+        },
+        {
+          "limit": "Health probes connectivity only",
+          "evidence": "docs/architecture.md:56; lib/service.ts:37",
+          "assessment": "SELECT 1 does not check migrations or write readiness; documentation explicitly defines it as a point-in-time connectivity check."
+        },
+        {
+          "limit": "Verification boundary",
+          "assessment": "No hosted/runtime, network, browser, credentials, load or recovery checks performed. No source files edited."
+        }
+      ]
+    },
+    {
+      "reviewer": 5,
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only review of tests, test adapters, service routes, frontend hooks, and auth boundary; no browser or network access.",
+      "findings": [
+        {
+          "severity": "medium",
+          "title": "Hosted identity and actual routing boundary are not exercised",
+          "evidence": "tests/helpers/database.mjs supplies oai-authenticated-user-id directly to service(); the route adapter test stubs cloudflare:workers and invokes exported functions directly. No test exercises worker/index.ts, framework route discovery, sign-in redirects, or trusted ingress header handling.",
+          "impact": "Owner isolation assertions establish service behavior only after a trusted identity is supplied; they cannot detect a deployment that accepts spoofed identity headers, loses auth headers, or fails to dispatch a public short-link route.",
+          "recommendation": "Add a small deployment-level smoke test against the actual hosted ingress and runtime for unauthenticated management, authenticated owner isolation, spoofed identity headers, and both redirect paths. The trusted-header test requires the real ingress rather than another stub."
+        },
+        {
+          "severity": "medium",
+          "title": "Concurrency guarantees are tested using a synchronous SQLite adapter",
+          "evidence": "tests/helpers/database.mjs executes DatabaseSync operations synchronously on a single in-memory connection, including batch transactions; the concurrent quota test uses Promise.all but the underlying SQL operations do not overlap.",
+          "impact": "The quota and click-accounting assertions do not establish behavior under real D1 concurrent requests, production transaction semantics, or runtime-specific result shapes. A database/runtime integration fault could escape this suite.",
+          "recommendation": "Exercise the quota boundary and simultaneous redirect accounting in a D1-compatible runtime with overlapping requests and assert final persisted counts; retain the fast SQLite tests."
+        },
+        {
+          "severity": "low",
+          "title": "Frontend tests do not exercise mounted components or React effects",
+          "evidence": "tests/frontend.test.mjs uses a hand-written hook adapter whose useEffect is a no-op and manually rerenders hooks; it does not mount app/page.tsx or the workspace/link components.",
+          "impact": "Initial loading, event wiring, actual dialog interaction, and visible recovery from request errors can regress while hook tests stay green.",
+          "recommendation": "Add a focused mounted-component or browser smoke test covering initial load, create, pause or delete confirmation, and an actionable failure state; test user-visible behavior rather than presentation details."
+        }
+      ],
+      "checks": [
+        "Reviewed service tests for authentication, owner isolation, validation, redirect lifecycle, rate limiting, analytics, migrations, and error behavior.",
+        "Reviewed frontend hook harness and database adapter; tests contain substantive state and persistence assertions rather than only snapshots.",
+        "Reviewed service and route/worker boundaries to distinguish tested behavior from adapter assumptions."
+      ],
+      "limits": [
+        "Did not run the test suite; this is a static coverage and assertion review.",
+        "No network, browser, deployed ingress, or production D1 was inspected; findings identify validation gaps, not proven production defects."
+      ]
+    },
+    {
+      "reviewer": 6,
+      "model": "gpt-6-astra",
+      "scope": "Read-only final review of GitHub Actions, scripts/verify*.mjs, process cleanup, fail-fast verification evidence, dependency reproducibility, and controlled-autonomy traceability.",
+      "findings": [],
+      "checks": [
+        {
+          "check": "Snapshot",
+          "result": "Inspected HEAD 8b3a5258abdf23f746c931ba6468e4031bbea917; git status --short was empty."
+        },
+        {
+          "check": "Verification sequencing and evidence",
+          "result": "Verifier runs format:check, lint, test, typecheck and build sequentially; saves atomic JSON reports before/after checks and exits on first nonzero result. Timeout/null status becomes failure; revision and dirty state are explicit."
+        },
+        {
+          "check": "CI and reproducibility",
+          "result": "Workflow covers main pushes and pull requests, uses Node 24 and pinned pnpm 11.25.0 with frozen lockfile, runs same verify command, has 15-minute job limit and always attempts evidence upload. package.json and pnpm lock importer pins/overrides align."
+        },
+        {
+          "check": "Process-supervisor regressions",
+          "command": "node --test tests/verify.test.mjs",
+          "result": "PASS: 4 tests, 0 failures; normal nonzero exit, spawn error, timeout with TERM-ignoring descendants when leader ignores TERM or exits."
+        },
+        {
+          "check": "Independent interruption probe",
+          "result": "PASS: sent SIGTERM to isolated supervisor running TERM-ignoring child; grace-period KILL completed, result status was null (failure), timedOut false, and SIGTERM listener count returned to baseline."
+        },
+        {
+          "check": "Controlled autonomy and provenance",
+          "result": "docs/swarm-review.md includes bounded scopes, owners, acceptance IDs, reviewed snapshot distinctions and links to detailed findings/checks/limits; docs distinguish local dirty reports from exact committed CI and separate hosted observations."
+        },
+        {
+          "check": "Existing integrated evidence",
+          "result": "Read outputs/verification.json: five successful steps at 2026-11-04T04:04:39.293Z, dirty base dbf8e94d7d303c2e09b2b3e0da0efa3bee7d1349. Treated as historical evidence, not proof of inspected HEAD."
+        }
+      ],
+      "limits": [
+        "No source edits, credential reads, browser actions or network requests. Only requested review artifact written.",
+        "No dependency installation, remote Actions inspection or full integrated verification rerun; focused process-supervision tests and isolated interruption probe only.",
+        "Linux process behavior tested locally; macOS behavior and hosted build/deployment were not exercised.",
+        "No new concrete defect found in reviewed scope; this is not an approval of areas outside that scope."
+      ]
+    },
+    {
+      "reviewer": 7,
+      "model": "gpt-6.1-sol",
+      "scope": "Analytics semantics, UTC aggregation, sample/live separation, chart totals and CSV export security",
+      "findings": [],
+      "checks": [
+        {
+          "area": "UTC aggregation",
+          "result": "Source inspection: recordClick derives UTC day with toISOString; D1 batch increments lifetime and daily counts together; generation predicates prevent a reused alias receiving the prior generation click. listDailyClicks groups by day and owner over the current UTC date plus 29 preceding dates."
+        },
+        {
+          "area": "Redirect semantics",
+          "result": "Source inspection: only GET on a present, active, unexpired link records clicks; HEAD does not count. Analytics write failure preserves the redirect and logs a request ID, matching REL-01."
+        },
+        {
+          "area": "Chart totals",
+          "result": "Source inspection: live series fills absent dates with zero; displayed total, SVG accessible label and daily table all derive from the same 7/30-day series. Top links explicitly uses all-time counts."
+        },
+        {
+          "area": "Sample/live distinction",
+          "result": "Source inspection: sample banner and chart/table illustrative labels are present; live data remains distinct from generated chart samples; sample mutation and copy/open handlers reject operations. Sample export has a distinct filename."
+        },
+        {
+          "area": "CSV security",
+          "result": "Source inspection: every cell is quoted and embedded quotes doubled; leading formula characters =,+,@,-,tab,CR receive an apostrophe. API validation trims titles and canonicalizes HTTP(S) URLs; short paths have a fixed safe prefix."
+        },
+        {
+          "area": "Existing regression coverage",
+          "result": "Read tests/service.test.mjs assertions for owner-scoped 30 UTC day aggregation and rollback on daily-write failure; read relevant frontend state-loading tests. Tests were inspected, not executed."
+        }
+      ],
+      "limits": [
+        "Read-only source/spec review; no browser or network used.",
+        "No tests executed and no spreadsheet application interoperability checks performed.",
+        "Hosted D1 transaction behavior and real client/server clock skew were not independently exercised."
+      ]
+    },
+    {
+      "reviewer": 8,
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only review of feature boundaries, cohesion, service and client contracts, and abstraction cost for the small prototype.",
+      "findings": [
+        {
+          "severity": "medium",
+          "title": "Authentication state is inferred from human-readable error text",
+          "evidence": "app/page.tsx derives authenticationRequired with loadError.includes(\"Sign in\"); features/workspace/api.ts throws only an Error string and discards the HTTP status. The same substring test also selects the sign-in action in the error banner.",
+          "impact": "Changing server wording or returning an unrelated error containing that phrase can select the wrong workspace state. The UI and service are implicitly coupled through copy rather than a stable contract.",
+          "recommendation": "Preserve the response status on a small API error type and use status 401 to select the sign-in state; keep messages for display."
+        },
+        {
+          "severity": "low",
+          "title": "Mutation refresh failures are hidden from action callers",
+          "evidence": "features/workspace/use-workspace.ts catches link load errors inside load() and refresh() resolves after load(); features/links/use-link-actions.ts awaits refresh() then reports creation, pause, resume or deletion success.",
+          "impact": "When the write succeeds but reloading fails, the action reports success while the displayed links may be stale. A load error is shown separately, but the action has no contract for distinguishing a completed refresh from a failed one.",
+          "recommendation": "Return an explicit refresh result, or otherwise communicate that the write succeeded but the list could not be refreshed; retain the separate analytics and health loading behavior."
+        }
+      ],
+      "checks": [
+        "Reviewed docs/architecture.md, service routing, link and analytics repositories, workspace data loading, API client, action hook, and page composition.",
+        "The current feature slices and thin route/service arrangement are proportionate to the prototype; no additional layers or SOLID abstractions are warranted on the inspected paths."
+      ],
+      "limits": [
+        "Static inspection only; no source changes, browser, network, or test execution.",
+        "Theme and navigation changes were outside this review and may be in progress."
+      ],
+      "resolution": "Implemented ApiRequestError status, workspace and action authentication flags, boolean link-refresh result, and explicit write-success/refresh-failure messages. Focused frontend tests pass (11/11)."
+    },
+    {
+      "reviewer": 9,
+      "model": "gpt-6-astra",
+      "scope": "Local dependency hygiene, reproducibility, bundled fonts/licenses, build scripts and public repository hygiene",
+      "findings": [],
+      "checks": [
+        "package.json pins pnpm@11.25.0; README and GitHub Actions use that version with --frozen-lockfile. Direct dependency specifiers match pnpm-lock.yaml importer entries.",
+        "pnpm-workspace.yaml retains a seven-day release-age policy, strict dependency build allowlist, and miniflare>sharp override consistent with the lockfile.",
+        "CI uses read-only contents permission, a 15-minute job timeout, the shared verification pipeline and an always-run report upload.",
+        "verify.mjs stops at the first failed command and records revision, dirty-tree status and outcomes; verify-command.mjs bounds command execution and terminates process groups.",
+        "Clean clones without an execution-profile.json use the portable Vinext path, avoiding the managed Linux GNU timeout wrapper.",
+        "Both referenced local font files are tracked, parse successfully with fontTools, identify as Inter Variable 4.001 and IBM Plex Mono 2.3, and have adjacent complete SIL OFL license files.",
+        "Git tracked-file inventory contains no node_modules, dist, Wrangler state, .env files, PEM files or tsbuildinfo artifacts; .gitignore excludes these categories.",
+        "Bundled Sites Vite plugin has its adjacent license file. README explicitly describes the public prototype limits and separate deployment process."
+      ],
+      "limits": [
+        "No network access, dependency installation, vulnerability database lookup or package provenance verification performed; no current vulnerability claims.",
+        "No clean-room install/build or macOS execution performed. Parent reviewer owns runtime validation.",
+        "Brand regeneration requires Python fontTools and Brotli, named in scripts/render-brand.py but not version-locked; exact cross-environment raster reproduction was not established. Checked-in assets do not require regeneration for app build.",
+        "No legal opinion or exhaustive transitive dependency license audit. No application-level LICENSE is present; intended source reuse license was not specified."
+      ]
+    },
+    {
+      "reviewer": 10,
+      "model": "gpt-6.1-sol",
+      "scope": "Read-only integration review: Firecrawl/Apify status and feasibility claims, destination URL processing and SSRF assumptions, and runtime architecture. Only this review artifact was written.",
+      "findings": [],
+      "checks": [
+        {
+          "check": "Provider availability and honesty",
+          "result": "README.md:81, docs/integrations.md:3-16 and features/workspace/components/workspace-dialogs.tsx:36-72 consistently identify both providers as inactive. Firecrawl evidence is explicitly an external cached development-tool retrieval, not deployed application verification; Apify was not invoked. No active runtime provider claim or browser credential collection was found."
+        },
+        {
+          "check": "Destination processing and SSRF boundary",
+          "result": "features/links/server/validation.ts:19-52 accepts only HTTP/HTTPS URLs without embedded credentials and rejects same-origin short-link shapes. lib/service.ts creates links through validation and persistence without fetching destination URLs. features/links/server/redirect.ts returns a 302 Location rather than fetching the destination. Private/local HTTP destinations are not blocked, but no current server-side destination request exists; therefore this is not a present SSRF finding. docs/architecture.md explicitly states the no-fetch and destination-trust limits."
+        },
+        {
+          "check": "Integration architecture and future scope",
+          "result": "docs/integrations.md:10-16 scopes optional post-create enrichment and previewed dataset imports separately from core shortening, requiring ownership/URL validation, cost limits, provider-failure tests and deployed verification before claiming connection. Existing lib/connectors.ts and worker/index.ts provide generic connector infrastructure without invoking Firecrawl/Apify in application flows. No credentials or out-of-scope provider implementation is required for this release."
+        }
+      ],
+      "limits": [
+        "No network, browser, provider, deployment, credential or live account checks performed. Historical external retrieval evidence was reviewed as documented, not independently reproduced.",
+        "Static inspection only; future destination-fetching enrichment will need its own explicit private-network, DNS/redirect and provider-fetch security review. Current URL validation should not be treated as an SSRF defense for a future fetch path."
+      ]
+    },
+    {
+      "reviewer": 11,
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only review of theme-picker.tsx, theme bootstrap and viewport metadata in app/layout.tsx, theme CSS, and UI-03 specification.",
+      "findings": [],
+      "checks": [
+        "The button is a native keyboard-operable switch with a stable accessible label and checked state.",
+        "Saved dark or light preference initializes the document, and the toggle updates both the document and localStorage.",
+        "A storage event updates theme and subscribers across tabs; removal or clearing returns to the light default.",
+        "Storage write errors are caught after the current-page state has changed.",
+        "CSS defaults to light, sets dark color-scheme and palette for data-theme=dark, and swaps switch icons.",
+        "The bootstrap and toggle both update theme-color metadata when the meta element is present."
+      ],
+      "limits": [
+        "Static inspection only; no browser, network, execution, or hydration test was performed.",
+        "The initial metadata update depends on the generated theme-color meta element being present when the head script runs; generated document ordering was not verified."
+      ]
+    },
+    {
+      "reviewer": 12,
+      "model": "gpt-6-astra",
+      "scope": "Read-only source review of UI-04 header, footer, mobile navigation, responsive CSS, accessible controls, dialog keyboard behavior, and route retention.",
+      "findings": [
+        {
+          "id": "R12-01",
+          "severity": "medium",
+          "title": "Mobile Create has no actionable destination for signed-out visitors",
+          "evidence": [
+            "app/page.tsx:55 computes authenticationRequired from the live sign-in error.",
+            "app/page.tsx:65-76 createFocus always exits sample mode and focuses/scrolls urlInput, without a signed-out branch.",
+            "app/page.tsx:224 hides the composer when authenticationRequired is true; app/globals.css:62-64 enforces display:none for hidden elements.",
+            "app/page.tsx:318-320 keeps the Create a link control enabled."
+          ],
+          "impact": "Once the signed-out state has loaded, pressing mobile Create on the Links view attempts to focus a hidden input and produces no useful navigation or focus change. From sample mode it leaves sample mode but still targets the hidden composer. A visitor scrolled down the list is not brought to the Get started sign-in action.",
+          "recommendation": "Branch on the sign-in requirement and focus/scroll the visible Get started action, or navigate through the existing trusted sign-in gateway. Keep composer focus for signed-in users.",
+          "verification": "Deterministic source-path inspection; not browser reproduced.",
+          "disposition": "resolved-source-recheck",
+          "recheck": {
+            "result": "Resolved by source inspection; runtime focus behavior remains unverified.",
+            "evidence": [
+              "app/page.tsx:32 adds signInAction ref; :56-58 derives needsSignIn independently of sample mode from workspace/action authentication state.",
+              "app/page.tsx:68-80 switches to Links/live and in requestAnimationFrame chooses signInAction.current when needsSignIn, otherwise urlInput.current, then focuses and scrolls that target.",
+              "app/page.tsx:184-205 renders Get started for the live authentication-required state and attaches signInAction to the trusted gateway anchor.",
+              "features/workspace/use-workspace.ts now derives authenticationRequired from ApiRequestError status 401 and clears it on successful list retrieval."
+            ],
+            "bounds": "Read-only recheck of the reported signed-out/mobile Create path. No browser, network, runtime keyboard, or screenshot verification. Original finding retained as historical review evidence."
+          }
+        }
+      ],
+      "checks": [
+        {
+          "result": "pass-source",
+          "detail": "UI-04 controls exist: brand home link, Links/Activity buttons, exactly one ThemePicker, workspace button, footer service/Guide/Connections/GitHub, mobile Links/Create/Activity."
+        },
+        {
+          "result": "pass-source",
+          "detail": "Desktop nav is display:none below 900px; mobile nav is display:none from 900px. Utilities remain in header/footer rather than duplicated in mobile nav."
+        },
+        {
+          "result": "pass-source",
+          "detail": "Header theme/workspace controls are 44px; mobile controls are at least 44px; footer resources have 44px minimum height. Narrow header styling exists at 380px; footer wraps; mobile navigation includes safe-area bottom padding."
+        },
+        {
+          "result": "pass-source",
+          "detail": "Native buttons expose keyboard activation; view buttons expose aria-pressed; theme is a labelled switch with aria-checked; workspace/Create icon buttons are labelled. Global focus-visible outline and a skip link are provided."
+        },
+        {
+          "result": "pass-source",
+          "detail": "Dialog has an accessible name and aria-modal, initial focus, Tab wrap, Escape dismissal, focus restoration, body scroll lock, and scrollable mobile/desktop sizing. Guide and Connections footer triggers resolve to their dialog branches."
+        },
+        {
+          "result": "pass-source",
+          "detail": "GitHub remains an external anchor with noopener noreferrer; brand targets /; trusted sign-in targets the gateway; both app/[code] and app/r/[code] still export GET/HEAD service adapters."
+        },
+        {
+          "result": "pass-source",
+          "detail": "Reduced-motion CSS disables animations/transitions; mobile Create chooses instant scrolling when reduced motion is requested."
+        }
+      ],
+      "limits": [
+        "No browser, network, screenshot review, assistive technology, or runtime keyboard testing performed as instructed.",
+        "Responsive checks inspect declarations and breakpoints; actual text fit, zoom, focus occlusion, and device safe-area geometry are unverified.",
+        "Route checks establish adapter presence and UI wiring only; backend redirect behavior was not executed.",
+        "Shared source was being reviewed in a working tree with edits; evidence reflects files read during this review."
+      ]
+    },
+    {
+      "reviewer": 13,
+      "model": "gpt-6.1-sol",
+      "scope": "Read-only README and documentation review for product-first public release, source accuracy and reproducible local setup.",
+      "findings": [],
+      "checks": [
+        "Read README.md, docs/spec.md, docs/architecture.md, docs/integrations.md, docs/design-system.md, docs/delivery.md and docs/swarm-review.md.",
+        "Compared documented API methods, response semantics, ownership, rate limiting, expiration, redirect counting and analytics window against service, validation and analytics implementation.",
+        "Compared documented local setup with package.json, pinned pnpm version, framework execution profiles, Vite configuration, tracked hosting configuration, local authentication emulator and ordered migration files.",
+        "Compared verify and CI claims with scripts/verify.mjs and .github/workflows/ci.yml.",
+        "Confirmed referenced checked-in review manifest and screenshot/brand asset paths exist.",
+        "Confirmed README keeps implementation narrative in linked docs and explicitly bounds runtime integrations, public prototype status, analytics accuracy, authentication trust boundary and deployment process."
+      ],
+      "limits": [
+        "No network/browser access; public URL availability, repository visibility, historical deployment observations and external feasibility evidence were not independently revalidated.",
+        "No clean-clone install/build/database execution; reproducibility was assessed by source inspection only.",
+        "Future final-review manifest is intentionally outside this review until assembled by the coordinator."
+      ]
+    },
+    {
+      "reviewer": 14,
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only review of product objective, specification, delivery and review evidence, and representative implementation and test traceability. The separately planned final-review manifest is outside this review.",
+      "findings": [],
+      "checks": [
+        "docs/spec.md defines a working URL shortener prototype and acceptance IDs; it frames the 2\u20133 day window as an intended plan rather than elapsed-history evidence.",
+        "docs/delivery.md decomposes understanding, planning, build, improvement, validation and release into reviewable outputs; it defines scoped agent work, ownership, fail-fast validation and limits to delegated authority.",
+        "docs/swarm-review.md maps bounded review assignments to requirements, findings and fixes, and distinguishes greenfield baseline from brownfield migration and regression work. The simulated named-person lenses are explicitly not endorsements.",
+        "docs/spec.md records ambiguity resolutions, including authenticated owner management versus public redirects, aggregate click semantics, sample-data treatment and inactive provider integrations. docs/integrations.md distinguishes an external feasibility observation from an implemented runtime connection.",
+        "Representative implementation and tests support the product scope: link validation and server repositories, workspace and sample UI, ordered verification and CI, SQLite service and migration tests, frontend hook tests, and process-supervision tests are present. The test names cover owner isolation, redirect compatibility, input bounds, concurrency, analytics identity and migration preservation.",
+        "Delivery and swarm records identify source and deployed revisions, observed browser behavior and limitations; they explicitly distinguish dirty-tree validation, hosted smoke checks, tests with stubs and broader production readiness. This is a workflow demonstration around a concrete product, not a claim that a universal autonomous agent platform was implemented."
+      ],
+      "limits": [
+        "This review inspected documents and representative source/test references only; it did not execute tests, inspect a browser, access the network, or independently verify historical agent counts, deployment or CI claims.",
+        "The review does not certify every acceptance criterion or the latest uncommitted source; deployed headers, load, restore, abuse response and cross-browser coverage retain the documented limitations."
+      ]
+    },
+    {
+      "reviewer": 15,
+      "model": "gpt-6-astra",
+      "scope": "Simulated pragmatic shipping lens",
+      "findings": [],
+      "checks": [
+        {
+          "result": "pass",
+          "detail": "README gives pinned package-manager installation, local database initialization, a single fail-fast verification command, and explicit separation between build evidence and production readiness."
+        },
+        {
+          "result": "pass",
+          "detail": "Theme implementation uses one persisted two-state preference, a pre-paint initializer, a semantic switch, cross-tab storage synchronization, and a storage-failure fallback without adding dependencies."
+        },
+        {
+          "result": "pass",
+          "detail": "Desktop and mobile navigation select the same local view state, expose aria-pressed, and use a shared 900px visibility boundary."
+        },
+        {
+          "result": "observed",
+          "detail": "Existing outputs/verification.json reports format, lint, tests, typecheck and build passed for revision dbf8e94d7d303c2e09b2b3e0da0efa3bee7d1349 with a dirty working tree; this review did not rerun those checks."
+        },
+        {
+          "result": "resolved by source recheck",
+          "detail": "The previously reported signed-out mobile create dead end is resolved in source. app/page.tsx createFocus selects Links/live and, on the next animation frame, focuses and scrolls signInAction.current when needsSignIn is true; the visible Get started anchor carries that ref and the trusted gateway URL. Signed-in users retain composer focus. needsSignIn includes workspace and mutation HTTP 401 state, independently of sample mode."
+        },
+        {
+          "result": "bounded verdict",
+          "detail": "No outstanding evidence-backed findings in this pragmatic shipping lens after the targeted source recheck. Implementation remains proportionate to the prototype. This is source-level resolution, not a claim of browser or deployment verification."
+        }
+      ],
+      "limits": [
+        "Simulated pragmatic shipping perspective; no actual endorsement or participation by Peter Steinberger.",
+        "Read-only source review with only the requested review artifact written. No browser, network, build or runtime tests were performed.",
+        "Visual appearance, hydration behavior and deployed authentication were not independently verified.",
+        "The working tree is modified, so the existing verification report cannot prove that every currently inspected byte was included in its successful run."
+      ]
+    },
+    {
+      "reviewer": 16,
+      "model": "gpt-6.1-sol",
+      "scope": "Simulated agent execution lens",
+      "findings": [],
+      "checks": [
+        "Bounded verdict: no blocking issue found in this read-only scope for the stated URL-shortener prototype and reviewable engineering-workflow objective; this is not certification of a general autonomous-agent product.",
+        "docs/spec.md defines actors, acceptance IDs, implementation boundaries and explicit out-of-scope capabilities. docs/delivery.md limits agents to authorized implementation, scoped fixes, checks and release preparation, assigns coordination and release responsibility, and distinguishes planning phases from invented elapsed history.",
+        "The named-person framing is explicitly simulated: docs/delivery.md and docs/swarm-review.md state that Harrison Chase and the other named people did not participate or endorse the project. This review uses an execution-boundary lens, not personal attribution.",
+        "scripts/verify.mjs executes an ordered fail-fast pipeline and atomically writes revision, dirty-tree flag, timing and per-command results. scripts/verify-command.mjs bounds command duration, owns a process group and escalates termination; tests/verify.test.mjs includes real-process timeout and descendant-cleanup cases.",
+        ".github/workflows/ci.yml invokes the common verifier with read-only repository permission, a job timeout and an always-attempted evidence upload. Documentation correctly separates local dirty-tree evidence, committed CI evidence and independently published Sites source.",
+        "docs/integrations.md and the Connections dialog distinguish external Firecrawl feasibility from hosted runtime capability, explicitly mark both providers inactive, and describe future bounded requests/imports with ownership, cost, failure and confirmation constraints.",
+        "lib/service.ts exposes public redirects before owner management, obtains owner identity from the gateway header, rejects foreign write Origins and applies mutation limits. README and architecture documentation explicitly identify gateway trust as a hosting prerequisite rather than pretending the header authenticates an arbitrary public origin.",
+        "Delivery and architecture documents identify incomplete load/restore/abuse work, awaited analytics latency and narrower browser/route-test evidence. These are visible prototype limits rather than unsubstantiated claims of production readiness."
+      ],
+      "limits": [
+        "Inspected README, specification, delivery, architecture, integration and prior review documentation, verifier/supervisor and tests, CI/package configuration, service routing and Connections source. No tests were executed and no network or browser access occurred.",
+        "Historical deployment, CI, agent-count and browser observations were assessed as documented claims, not independently revalidated.",
+        "The final20 manifest is still being assembled and was intentionally excluded from completeness judgment. The current working tree is mutable; this review is not a frozen-revision attestation.",
+        "No assessment of provider credentials, hosted gateway enforcement, live behavior, broad operational readiness or universal AI-product capability is implied."
+      ]
+    },
+    {
+      "reviewer": 17,
+      "model": "gpt-6.1-terra",
+      "scope": "Simulated skeptical maintainer lens",
+      "findings": [],
+      "checks": [
+        "Read README, delivery record, review record, package scripts and CI workflow for setup, verification, deployment and readiness claims.",
+        "Inspected API routing, shared HTTP parsing and error responses, client request helper and frontend test harness for maintainability and contract hygiene.",
+        "README identifies the prototype limits, authentication trust boundary, separate deployment process, test boundaries and pinned toolchain; the delivery record distinguishes dated evidence from current revision verification.",
+        "The API uses bounded JSON parsing, explicit method checks, owner checks and centralized error responses; the verifier records revision, dirty state and ordered outcomes."
+      ],
+      "limits": [
+        "This is a simulated generic maintainer perspective; it is not a review, opinion or endorsement by the named GitHub maintainer.",
+        "Read-only source review; no test suite, browser, deployed service or external network was exercised during this review.",
+        "Working tree was changing concurrently. The coordinator is separately addressing API status and refresh handling, so those changes were not independently validated here.",
+        "Frontend hook tests use a minimal React adapter with useEffect stubbed and no DOM; they do not establish actual React lifecycle, accessibility or browser behavior.",
+        "Historical release and verification evidence does not establish readiness of the final dirty working tree; rerun verification and independently check the exact deployed revision."
+      ]
+    },
+    {
+      "reviewer": 18,
+      "model": "gpt-6-astra",
+      "scope": "Read-only final review of brand and social metadata assets, font-license honesty, semantic palette, two-state theme accessibility, reduced motion and responsive CSS.",
+      "findings": [],
+      "checks": [
+        "app/layout.tsx defines canonical origin, title, description, Open Graph dimensions and alt text, Twitter large-image card, SVG/PNG favicon and Apple icon references; every referenced image exists.",
+        "Pillow inspection verified social PNGs are 1200x630, favicon PNG is 32x32 and touch icon is 180x180.",
+        "fontTools metadata inspection identifies the shipped WOFF2 files as Inter Variable and IBM Plex Mono. Matching SIL OFL license files are present. docs/design-system.md explicitly discloses that Whyte files were not supplied and are not bundled.",
+        "ThemePicker uses a named button with role=switch and aria-checked; the single control toggles light/dark, updates document theme and theme-color, persists local storage with failure handling and subscribes to storage events. Layout initialization uses the same key and defaults to light.",
+        "Semantic foreground, muted text, background, raised surface, accent text, danger, overlay and border tokens have dark overrides; dialogs, menus, error states and chart surfaces consume them. Deliberate fixed-dark code artwork uses contrasting lavender text.",
+        "Global prefers-reduced-motion disables animations/transitions for elements and pseudo-elements. Programmatic create-focus scrolling separately honors the reduced-motion media query.",
+        "Responsive CSS uses minmax(0,1fr), shrinking input containers, explicit narrow-header adjustments, stacked mobile composer, mobile navigation safe-area padding and bottom-sheet dialogs. No concrete new defect established from source alone."
+      ],
+      "limits": [
+        "No browser, network, screenshot rendering or live-device interaction performed; this is not a visual-layout or complete accessibility certification.",
+        "No claim that historical screenshots validate the latest theme control. No font-license legal assessment beyond presence and honest documentation.",
+        "Inspected a working tree under concurrent modification. Findings apply to the source snapshot read during this review."
+      ]
+    },
+    {
+      "reviewer": 19,
+      "model": "gpt-6.1-sol",
+      "scope": "Integrated source review of two-state theme initialization/toggle, responsive navigation/footer, signed-out Create focus, typed API 401 handling, and mutation refresh outcomes.",
+      "findings": [],
+      "checks": [
+        "Inspected app/page.tsx, app/layout.tsx, app/globals.css, workspace theme/API/loading hooks, workspace dialogs, and link action hooks.",
+        "Ran node --test tests/frontend.test.mjs: all 11 tests passed.",
+        "Verified source focus routing uses persistent authentication requirement when leaving Sample mode; typed 401 detection uses the API error class and status; successful mutations distinguish failed list refresh."
+      ],
+      "limits": [
+        "Read-only application review; only the requested review JSON was created.",
+        "No browser or network used; responsive rendering and actual focus/paint behavior were reviewed in source only.",
+        "Full verification delegated to root run; no duplicate full build/typecheck performed."
+      ]
+    },
+    {
+      "reviewer": 20,
+      "model": "gpt-6.1-terra",
+      "scope": "Read-only final source release review: README and specification, runtime and UI boundaries, theme state, documented integration limits, and public-source hygiene.",
+      "findings": [],
+      "checks": [
+        "Read README, specification, architecture, integration feasibility and delivery record for consistent product and hosting boundaries.",
+        "Inspected workspace loading and API error handling, light/dark switching and initialization, and source layout against documented behavior.",
+        "Searched source and documentation for credential-related terms, local-only development boundaries, and unresolved markers; found no concrete exposed credential in inspected results.",
+        "Confirmed the release documentation distinguishes recorded historical deployment and validation evidence from current source verification and publication."
+      ],
+      "limits": [
+        "Read-only source inspection; no network, browser, deployed authentication, or live redirect checks.",
+        "Did not independently run the verification pipeline; coordinator is running it.",
+        "Credential search was targeted and is not a comprehensive secret scan."
+      ]
+    }
+  ]
+}

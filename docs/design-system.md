@@ -24,7 +24,7 @@ Display type uses regular or light weights, tight spacing, fluid 36–64 px head
 
 ## Themes and interaction
 
-The header offers **System**, **Light** and **Dark**. System follows the device preference. An explicit preference is applied before first paint and persists in local storage; storage failure still permits a current-page change. Storage events synchronize open tabs. All workspace surfaces, menus, dialogs, forms, charts, sample states and errors share the same tokens.
+The header offers one accessible light/dark switch. New visitors start in light mode; there is no system mode. A saved preference is applied before first paint and persists in local storage; storage failure still permits a current-page change. Storage events synchronize open tabs. All workspace surfaces, menus, dialogs, forms, charts, sample states and errors share the same tokens.
 
 Motion is limited to short entries, control feedback and the chart trace. `prefers-reduced-motion` disables motion. Focus remains visible, mobile navigation respects the safe area, and sample records remain clearly labeled and read-only.
 
@@ -44,4 +44,4 @@ The redesign passed the existing 40-test suite, lint, formatting, TypeScript and
 
 Core small-text and primary-button pairs were calculated at 5.13:1 or above. This is a bounded contrast check, not a complete accessibility certification. Open Graph and Twitter tags were inspected in rendered HTML, and both PNG cards were verified at 1200 × 630.
 
-[Dark mobile workspace](assets/theme-dark-mobile.png) · [Light mobile workspace](assets/theme-light-mobile.png). These captures use labeled sample data; they contain no private destination records. The earlier release screenshots are retained as historical evidence.
+[Dark mobile workspace](assets/final-navigation-dark.png) · [Light mobile workspace](assets/final-navigation-light.png). These captures use labeled sample data; they contain no private destination records. The earlier release screenshots are retained as historical evidence.

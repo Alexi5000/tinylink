@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LinkRecord } from "../links/model";
 import type { DailyClicks } from "../analytics/activity-panel";
-import { errorMessage, request } from "./api";
+import { ApiRequestError, errorMessage, request } from "./api";
 
 export function useWorkspace() {
   const [links, setLinks] = useState<LinkRecord[]>([]);
   const [days, setDays] = useState<DailyClicks[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [authenticationRequired, setAuthenticationRequired] = useState(false);
   const [health, setHealth] = useState("Checking");
   const generation = useRef(0);
 
@@ -42,9 +43,19 @@ export function useWorkspace() {
       });
     try {
       const data = await request<{ links: LinkRecord[] }>("/api/links");
-      if (current === generation.current) setLinks(data.links);
+      if (current === generation.current) {
+        setLinks(data.links);
+        setAuthenticationRequired(false);
+      }
+      return true;
     } catch (error) {
-      if (current === generation.current) setLoadError(errorMessage(error));
+      if (current === generation.current) {
+        setLoadError(errorMessage(error));
+        setAuthenticationRequired(
+          error instanceof ApiRequestError && error.status === 401,
+        );
+      }
+      return false;
     } finally {
       if (current === generation.current) setLoading(false);
     }
@@ -55,7 +66,7 @@ export function useWorkspace() {
     setAnalyticsLoading(true);
     setLoadError("");
     setAnalyticsError("");
-    await load();
+    return await load();
   }, [load]);
 
   useEffect(() => {
@@ -73,6 +84,7 @@ export function useWorkspace() {
     loading,
     analyticsLoading,
     loadError,
+    authenticationRequired,
     analyticsError,
     health,
     refresh,

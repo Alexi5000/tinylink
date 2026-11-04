@@ -82,3 +82,7 @@ The local managed preview served stale source and reported missing modules after
 ## Second review pass
 
 The [20-agent review record](swarm-review.md) describes the subsequent multi-model review, concrete task ownership, fixes, and validation. Earlier observations above remain dated evidence for the first release. Current CI results belong to their exact pushed revision.
+
+## Final release pass
+
+The [final release review](final-review.md) records the fresh 20-agent review after the visual-system delivery, final navigation requirements, confirmed corrections and objective traceability. Earlier observations in this document retain their original scope.

@@ -16,7 +16,7 @@ Create links such as `https://tinylink.techtideai.chatgpt.site/launch`. The dash
 - Owner-scoped management, input validation, rate limits and durable storage.
 - Labeled sample preview with no sample records written to the database.
 - Responsive layouts, keyboard-accessible dialogs and reduced-motion support.
-- Complete light, dark and system themes, with a saved preference.
+- One-button light/dark switching, with a saved preference.
 - Self-hosted typography, a vector favicon and native social previews.
 
 [Brand assets and theme specification](docs/design-system.md). Sample data is clearly labeled in the interface.
@@ -80,7 +80,7 @@ This is a publicly accessible prototype, suitable for evaluating the complete wo
 - Deleting a link deletes its analytics. Historical daily rows otherwise have no automated retention policy.
 - Firecrawl and Apify are **not connected at runtime**. See [integration feasibility](docs/integrations.md).
 
-The [second review record](docs/swarm-review.md) lists the 20 reviewers, their model assignments, confirmed findings and validation limits.
+The [final release review](docs/final-review.md) records a fresh 20-agent pass across Sol, Terra and Astra, resolved findings, objective traceability and validation limits. Earlier review records remain available for comparison.
 
 ## Deployment and support
 

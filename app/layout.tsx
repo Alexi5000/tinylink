@@ -43,14 +43,11 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   colorScheme: "light dark",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f9fa" },
-    { media: "(prefers-color-scheme: dark)", color: "#090909" },
-  ],
+  themeColor: "#f7f9fa",
 };
 
-// Apply a saved preference before first paint; CSS handles system preference.
-const themeInit = `try{const t=localStorage.getItem('tinylink-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch{}`;
+// Apply the saved two-state preference before first paint; default to light.
+const themeInit = `try{const d=localStorage.getItem('tinylink-theme')==='dark';document.documentElement.dataset.theme=d?'dark':'light';document.querySelector('meta[name=theme-color]')?.setAttribute('content',d?'#090909':'#f7f9fa')}catch{}`;
 export default function RootLayout({
   children,
 }: {

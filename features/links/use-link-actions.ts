@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { request, errorMessage } from "../workspace/api";
+import { ApiRequestError, request, errorMessage } from "../workspace/api";
 import { shortPath, type LinkRecord } from "./model";
 import { isExpired } from "./presentation";
 
@@ -11,11 +11,13 @@ export function useLinkActions({
   onCreated,
 }: {
   demo: boolean;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<boolean | void>;
   onCreated: () => void;
 }) {
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [actionAuthenticationRequired, setActionAuthenticationRequired] =
+    useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState("");
@@ -48,6 +50,7 @@ export function useLinkActions({
     const values = new FormData(form);
     setSaving(true);
     setActionError("");
+    setActionAuthenticationRequired(false);
     try {
       const expires = values.get("expiresAt") as string | null;
       const data = await request<{ link: LinkRecord }>("/api/links", {
@@ -63,9 +66,16 @@ export function useLinkActions({
       form.reset();
       onSuccess();
       onCreated();
-      await refresh();
-      setMessage("Your link is ready. " + shortPath(data.link.code));
+      const refreshed = await refresh();
+      setMessage(
+        refreshed === false
+          ? "Link saved, but the list could not be refreshed."
+          : "Your link is ready. " + shortPath(data.link.code),
+      );
     } catch (error) {
+      setActionAuthenticationRequired(
+        error instanceof ApiRequestError && error.status === 401,
+      );
       setActionError(errorMessage(error));
     } finally {
       mutationPending.current = false;
@@ -90,15 +100,22 @@ export function useLinkActions({
     mutationPending.current = true;
     setBusy(link.code);
     setActionError("");
+    setActionAuthenticationRequired(false);
     try {
       await request("/api/links/" + encodeURIComponent(link.code), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !link.active }),
       });
-      await refresh();
-      setMessage(link.active ? "Link paused" : "Link resumed");
+      const refreshed = await refresh();
+      setMessage(
+        (link.active ? "Link paused" : "Link resumed") +
+          (refreshed === false ? ", but the list could not be refreshed." : ""),
+      );
     } catch (error) {
+      setActionAuthenticationRequired(
+        error instanceof ApiRequestError && error.status === 401,
+      );
       setActionError(errorMessage(error));
     } finally {
       mutationPending.current = false;
@@ -123,9 +140,16 @@ export function useLinkActions({
         method: "DELETE",
       });
       setRemove(null);
-      await refresh();
-      setMessage("Link deleted");
+      const refreshed = await refresh();
+      setMessage(
+        refreshed === false
+          ? "Link deleted, but the list could not be refreshed."
+          : "Link deleted",
+      );
     } catch (error) {
+      setActionAuthenticationRequired(
+        error instanceof ApiRequestError && error.status === 401,
+      );
       setDeleteError(errorMessage(error));
     } finally {
       deleting.current = false;
@@ -140,6 +164,7 @@ export function useLinkActions({
       return;
     }
     setActionError("");
+    setActionAuthenticationRequired(false);
     const url = location.origin + shortPath(link.code);
     try {
       await navigator.clipboard.writeText(url);
@@ -168,6 +193,7 @@ export function useLinkActions({
     message,
     notify: setMessage,
     actionError,
+    actionAuthenticationRequired,
     clearActionError: () => setActionError(""),
     deleteError,
   };

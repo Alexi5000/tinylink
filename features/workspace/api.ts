@@ -1,3 +1,13 @@
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export async function request<T>(
   path: string,
   options?: RequestInit,
@@ -23,7 +33,10 @@ export async function request<T>(
       /^[a-zA-Z0-9_-]{1,100}$/.test(data.requestId)
         ? data.requestId
         : "";
-    throw new Error(requestId ? `${error} Reference: ${requestId}` : error);
+    throw new ApiRequestError(
+      requestId ? `${error} Reference: ${requestId}` : error,
+      response.status,
+    );
   }
   return data as T;
 }

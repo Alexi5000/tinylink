@@ -54,25 +54,7 @@
   --danger: #ffacba;
   --danger-wash: #301a21;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #090909;
-    --surface: #111113;
-    --raised: #1b1b1e;
-    --ink: #f7f9fa;
-    --muted: #a9a8af;
-    --line: #2c292e;
-    --strong-line: #474747;
-    --accent-text: #e1bdff;
-    --accent-wash: #af50ff12;
-    --glass: #090909ed;
-    --shadow: 0 16px 48px #00000030;
-    --overlay: #00000099;
-    --danger: #ffacba;
-    --danger-wash: #301a21;
-  }
-}
+
 * {
   box-sizing: border-box;
 }
@@ -206,10 +188,7 @@ pre {
   background: var(--accent);
   color: #090909;
 }
-.workspace-name,
-.desktop-nav,
-.help-button,
-.sources-button span {
+.desktop-nav {
   display: none;
 }
 .header-actions {
@@ -217,31 +196,46 @@ pre {
   align-items: center;
   gap: 8px;
 }
-.theme-picker {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.theme-toggle,
+.workspace-button {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
   color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 12px;
 }
-.theme-picker select {
-  min-height: 44px;
-  width: 76px;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  padding: 0 2px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.theme-picker option {
+.theme-toggle:hover,
+.workspace-button:hover {
   color: var(--ink);
-  background: var(--surface);
+  background: var(--raised);
 }
-.theme-picker svg {
+.theme-sun {
   display: none;
 }
+:root[data-theme="dark"] .theme-sun {
+  display: block;
+}
+:root[data-theme="dark"] .theme-moon {
+  display: none;
+}
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 16px;
+  z-index: 100;
+  padding: 12px 18px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--bg);
+  transform: translateY(-160%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 .icon-button,
-.sources-button,
 .avatar {
   display: inline-flex;
   align-items: center;
@@ -259,18 +253,14 @@ pre {
   height: 32px;
 }
 .icon-button:hover,
-.sources-button:hover,
 .avatar:hover {
   background: var(--raised);
   color: var(--ink);
 }
-.header .help-button {
-  display: none;
-}
 main {
   max-width: 1120px;
   margin: auto;
-  padding: 38px 20px 110px;
+  padding: 38px 20px 32px;
 }
 .page-intro {
   position: relative;
@@ -899,28 +889,43 @@ h1 span {
 .list-footer .foot-tip {
   display: none;
 }
-.bottom-note {
+.site-footer {
+  max-width: 1040px;
+  margin: 0 20px;
+  padding: 20px 0 100px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-top: 36px;
-  padding-top: 20px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
   border-top: 1px solid var(--line);
-  font-size: 11px;
   color: var(--muted);
+  font-size: 11px;
 }
-.bottom-note > span,
-.bottom-note > button {
-  display: flex;
+.service-status {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-.bottom-note button {
-  min-height: 40px;
-  font-size: 11px;
-  padding: 0;
+.site-footer nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
+.site-footer button,
+.site-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 12px;
+}
+.site-footer button:hover,
+.site-footer a:hover {
+  color: var(--ink);
+}
+
 .service-dot,
 .sample-dot {
   display: inline-block;
@@ -1537,19 +1542,16 @@ h1 span {
     width: 32px;
     height: 32px;
   }
-  .theme-picker select {
-    width: 66px;
-  }
 }
 @media (min-width: 600px) {
+  .site-footer {
+    margin-inline: 32px;
+  }
   main {
-    padding: 52px 32px 110px;
+    padding: 52px 32px 32px;
   }
   .header-inner {
     padding: 0 32px;
-  }
-  .theme-picker svg {
-    display: block;
   }
   .page-intro p {
     max-width: none;
@@ -1725,21 +1727,16 @@ h1 span {
   }
 }
 @media (min-width: 900px) {
+  .site-footer {
+    margin-inline: auto;
+    width: calc(100% - 80px);
+    padding-bottom: 28px;
+  }
   .header {
     height: 82px;
   }
   .header-inner {
     padding: 0 44px;
-  }
-  .workspace-name {
-    display: inline;
-    padding-left: 20px;
-    margin-left: 12px;
-    border-left: 1px solid var(--line);
-    color: var(--muted);
-    font: 10px var(--mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
   }
   .desktop-nav {
     display: flex;
@@ -1769,18 +1766,6 @@ h1 span {
   }
   .header-actions {
     gap: 12px;
-  }
-  .sources-button {
-    width: auto;
-    padding: 0 12px;
-    gap: 7px;
-    font-size: 12px;
-  }
-  .sources-button span {
-    display: inline;
-  }
-  .header .help-button {
-    display: inline-flex;
   }
   main {
     padding: 64px 40px 36px;

@@ -10,8 +10,7 @@ import {
   Check,
   Activity,
   MousePointer2,
-  BookOpen,
-  Plug,
+  CircleUserRound,
 } from "lucide-react";
 import { LinkComposer } from "@/features/links/components/link-composer";
 import { LinkList } from "@/features/links/components/link-list";
@@ -30,12 +29,14 @@ export default function Home() {
   const [sheet, setSheet] = useState("");
   const [createdVersion, setCreatedVersion] = useState(0);
   const urlInput = useRef<HTMLInputElement>(null);
+  const signInAction = useRef<HTMLAnchorElement>(null);
   const {
     links,
     days,
     loading,
     analyticsLoading,
     loadError,
+    authenticationRequired: workspaceNeedsSignIn,
     analyticsError,
     health,
     refresh,
@@ -52,7 +53,9 @@ export default function Home() {
   const now = useClock();
   const rows = demo ? sampleLinks : links;
   const total = rows.reduce((sum, link) => sum + link.clicks, 0);
-  const authenticationRequired = !demo && loadError.includes("Sign in");
+  const needsSignIn =
+    workspaceNeedsSignIn || actions.actionAuthenticationRequired;
+  const authenticationRequired = !demo && needsSignIn;
   const workspaceError = !demo
     ? [
         loadError && `Links: ${loadError}`,
@@ -66,8 +69,9 @@ export default function Home() {
     setView("Links");
     setDemo(false);
     requestAnimationFrame(() => {
-      urlInput.current?.focus();
-      urlInput.current?.scrollIntoView({
+      const target = needsSignIn ? signInAction.current : urlInput.current;
+      target?.focus();
+      target?.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
           ? "instant"
           : "smooth",
@@ -77,6 +81,9 @@ export default function Home() {
   }
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content">
+        Skip to workspace
+      </a>
       <header className="header">
         <div className="header-inner">
           <Link href="/" className="brand" aria-label="TinyLink home">
@@ -97,7 +104,7 @@ export default function Home() {
                 />
               </svg>
             </span>
-            tinylink<span className="workspace-name">Workspace</span>
+            tinylink
           </Link>
           <nav className="desktop-nav" aria-label="Main navigation">
             {["Links", "Activity"].map((name) => (
@@ -114,33 +121,16 @@ export default function Home() {
           <div className="header-actions">
             <ThemePicker />
             <button
-              className={
-                "sources-button " + (sheet === "Connections" ? "selected" : "")
-              }
-              aria-label="Open connections"
-              onClick={() => setSheet("Connections")}
-            >
-              <Plug size={16} />
-              <span>Connections</span>
-            </button>
-            <button
-              className="icon-button help-button"
-              aria-label="Open guide"
-              onClick={() => setSheet("Guide")}
-            >
-              <BookOpen size={18} />
-            </button>
-            <button
-              className="avatar"
+              className="workspace-button"
               aria-label="Workspace details"
               onClick={() => setSheet("Workspace")}
             >
-              <Link2 size={18} />
+              <CircleUserRound size={19} />
             </button>
           </div>
         </div>
       </header>
-      <main>
+      <main id="main-content">
         <div className="page-intro enter">
           <div>
             <div className="eyebrow">
@@ -207,6 +197,7 @@ export default function Home() {
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a
               className="primary"
+              ref={signInAction}
               href="/signin-with-chatgpt?return_to=%2F"
               target="_top"
             >
@@ -217,7 +208,7 @@ export default function Home() {
         {error && !authenticationRequired && (
           <div className="error" role="alert">
             <p>{error}</p>
-            {error.includes("Sign in") ? (
+            {needsSignIn ? (
               // Platform authentication requires a full top-level navigation.
               // eslint-disable-next-line @next/next/no-html-link-for-pages
               <a href="/signin-with-chatgpt?return_to=%2F" target="_top">
@@ -293,24 +284,32 @@ export default function Home() {
             unavailable={!!analyticsError}
           />
         )}
-        <div className="bottom-note enter">
-          <span>
-            <span
-              className={
-                "service-dot " + (health === "Operational" ? "operational" : "")
-              }
-            />
-            {health === "Operational"
-              ? "Service reachable"
-              : health === "Checking"
-                ? "Checking service"
-                : "Service unavailable"}
-          </span>
-          <button onClick={() => setSheet("Guide")}>
-            A little guidance <ArrowUpRight size={13} />
-          </button>
-        </div>
       </main>
+      <footer className="site-footer">
+        <span className="service-status">
+          <span
+            className={
+              "service-dot " + (health === "Operational" ? "operational" : "")
+            }
+          />
+          {health === "Operational"
+            ? "Service available"
+            : health === "Checking"
+              ? "Checking service"
+              : "Service unavailable"}
+        </span>
+        <nav aria-label="Resources">
+          <button onClick={() => setSheet("Guide")}>Guide</button>
+          <button onClick={() => setSheet("Connections")}>Connections</button>
+          <a
+            href="https://github.com/Alexi5000/tinylink"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub <ArrowUpRight size={13} />
+          </a>
+        </nav>
+      </footer>
       <nav className="mobile-nav" aria-label="Mobile navigation">
         <button
           className={view === "Links" ? "selected" : ""}
@@ -321,14 +320,6 @@ export default function Home() {
           Links
         </button>
         <button
-          className={view === "Activity" ? "selected" : ""}
-          aria-pressed={view === "Activity"}
-          onClick={() => setView("Activity")}
-        >
-          <Activity size={19} />
-          Activity
-        </button>
-        <button
           className="mobile-create"
           onClick={createFocus}
           aria-label="Create a link"
@@ -336,15 +327,12 @@ export default function Home() {
           <Plus size={23} />
         </button>
         <button
-          aria-label="Open connections"
-          onClick={() => setSheet("Connections")}
+          className={view === "Activity" ? "selected" : ""}
+          aria-pressed={view === "Activity"}
+          onClick={() => setView("Activity")}
         >
-          <Plug size={19} />
-          Sources
-        </button>
-        <button onClick={() => setSheet("Guide")}>
-          <BookOpen size={19} />
-          Guide
+          <Activity size={19} />
+          Activity
         </button>
       </nav>
       {actions.message && (

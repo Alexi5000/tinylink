@@ -29,7 +29,7 @@ type Props = {
   loading: boolean;
   busy: boolean;
   copied: string;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<boolean | void>;
   copy: (link: LinkRecord) => Promise<void>;
   change: (link: LinkRecord) => Promise<void>;
   onDelete: (link: LinkRecord) => void;

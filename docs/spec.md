@@ -33,6 +33,13 @@ The initial implementation is the greenfield baseline. Review-driven fixes to th
 
 Validation entries describe the required checks; they do not assert that every check has already passed. The [delivery record](delivery.md) tracks available evidence and unresolved release checks.
 
+## Final presentation acceptance
+
+- UI-03: One keyboard-accessible light/dark switch, no system mode; persist the choice across reloads and synchronize tabs. Storage failure must not prevent current-page switching.
+- UI-04: Header exposes brand, primary views, theme and workspace details; the footer contains service status, Guide, Connections and GitHub. Mobile navigation exposes Links, Create and Activity without duplicate utility controls.
+- BRAND-01: Preserve the supplied violet/neutral palette, self-hosted licensed fallback fonts, reduced-motion behavior, favicon and social metadata.
+- REVIEW-01: Record a fresh 20-reviewer final pass across Sol, Terra and Astra with findings, disposition, evidence and bounded simulated persona reviews.
+
 ## Implementation map
 
 - LINK-01, LINK-02 and LIMIT-01: `features/links/server/validation.ts`, `features/links/server/repository.ts` and `shared/server/rate-limit.ts`.

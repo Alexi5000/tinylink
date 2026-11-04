@@ -41,7 +41,13 @@ function harness(entry, mocks = {}, globals = {}) {
   };
   const cache = new Map();
   function load(file) {
-    if (file in mocks) return mocks[file];
+    if (file in mocks) {
+      const mock = mocks[file];
+      delete mocks[file];
+      const actual = load(file);
+      mocks[file] = mock;
+      return { ...actual, ...mock };
+    }
     if (cache.has(file)) return cache.get(file).exports;
     const loadedModule = { exports: {} };
     cache.set(file, loadedModule);
@@ -349,4 +355,79 @@ test("analytics and health update even while the links endpoint is stalled", asy
   assert.equal(result.loading, true);
   links.resolve({ links: [] });
   await refresh;
+});
+
+test("API error exposes status independently of message wording", async () => {
+  const h = harness(
+    "features/workspace/api.ts",
+    {},
+    {
+      fetch: async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: "Access denied" }),
+      }),
+    },
+  );
+  await assert.rejects(
+    h.exports.request("/api/links"),
+    (error) => error.status === 401 && error.message === "Access denied",
+  );
+});
+
+test("successful mutation reports when list refresh fails", async () => {
+  const h = harness("features/links/use-link-actions.ts", {
+    [apiFile]: { request: async () => ({}), errorMessage: String },
+  });
+  const props = { demo: false, refresh: async () => false, onCreated() {} };
+  await h.render("useLinkActions", props).change(link("abc"));
+  assert.match(
+    h.render("useLinkActions", props).message,
+    /paused.*list could not be refreshed/i,
+  );
+});
+
+test("workspace authentication depends on status, not error copy", async () => {
+  for (const [status, message, expected] of [
+    [401, "Access denied", true],
+    [500, "Sign in later", false],
+  ]) {
+    const h = harness(
+      "features/workspace/use-workspace.ts",
+      {},
+      {
+        fetch: async (path) =>
+          path === "/api/links"
+            ? { ok: false, status, json: async () => ({ error: message }) }
+            : { ok: true, json: async () => ({ days: [] }) },
+      },
+    );
+    await h.render("useWorkspace").refresh();
+    assert.equal(h.render("useWorkspace").authenticationRequired, expected);
+  }
+});
+
+test("mutation authentication depends on status, not error copy", async () => {
+  for (const [status, message, expected] of [
+    [401, "Access denied", true],
+    [500, "Sign in later", false],
+  ]) {
+    const h = harness(
+      "features/links/use-link-actions.ts",
+      {},
+      {
+        fetch: async () => ({
+          ok: false,
+          status,
+          json: async () => ({ error: message }),
+        }),
+      },
+    );
+    const props = { demo: false, refresh: async () => true, onCreated() {} };
+    await h.render("useLinkActions", props).change(link("abc"));
+    assert.equal(
+      h.render("useLinkActions", props).actionAuthenticationRequired,
+      expected,
+    );
+  }
 });
